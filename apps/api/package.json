@@ -1,0 +1,54 @@
+{
+  "name": "@ledgerlink/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsup src/server.ts --format esm --target node20 --out-dir dist",
+    "start": "node dist/server.js",
+    "lint": "ESLINT_USE_FLAT_CONFIG=false eslint \"src/**/*.{ts,tsx}\" --max-warnings=0",
+    "test": "vitest run",
+    "prisma:generate": "node ./scripts/with-root-env.mjs prisma generate --schema ../../prisma/schema.prisma",
+    "prisma:migrate": "node ./scripts/with-root-env.mjs prisma migrate dev --schema ../../prisma/schema.prisma",
+    "prisma:seed": "node ./scripts/with-root-env.mjs tsx src/seed.ts",
+    "pubsub:worker": "tsx src/modules/pubsub/run-pull-worker.ts",
+    "companies:backfill-default": "tsx src/modules/companies/apply-default-company.ts"
+  },
+  "prisma": {
+    "seed": "tsx src/seed.ts"
+  },
+  "dependencies": {
+    "@google-cloud/pubsub": "^4.10.0",
+    "@ledgerlink/shared": "workspace:*",
+    "@prisma/client": "^6.5.0",
+    "cors": "^2.8.5",
+    "dayjs": "^1.11.13",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "googleapis": "^148.0.0",
+    "html-to-text": "^9.0.5",
+    "openai": "^4.79.2",
+    "pino": "^9.7.0",
+    "pino-http": "^10.4.0",
+    "pino-pretty": "^13.0.0",
+    "twilio": "^5.4.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.1",
+    "@types/node": "^22.13.10",
+    "@types/supertest": "^6.0.3",
+    "@typescript-eslint/eslint-plugin": "^8.26.1",
+    "@typescript-eslint/parser": "^8.26.1",
+    "eslint": "^9.22.0",
+    "eslint-config-prettier": "^10.1.1",
+    "prisma": "^6.5.0",
+    "supertest": "^7.1.0",
+    "tsup": "^8.4.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.9"
+  }
+}

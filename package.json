@@ -1,0 +1,22 @@
+{
+  "name": "asd-ledgerlink",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.11.0",
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter @ledgerlink/api dev\" \"pnpm --filter @ledgerlink/web dev\"",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "db:migrate": "pnpm --filter @ledgerlink/api prisma:migrate",
+    "db:seed": "pnpm --filter @ledgerlink/api prisma:seed"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.5.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "prettier": "^3.5.3",
+    "prisma": "^6.5.0"
+  }
+}

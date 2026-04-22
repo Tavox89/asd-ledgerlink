@@ -1,0 +1,14 @@
+.DS_Store
+node_modules
+.next
+dist
+coverage
+.turbo
+.env
+.env.local
+client_secret_*.json
+*service-account*.json
+*pubsub*.json
+*.log
+prisma/generated
+apps/api/uploads

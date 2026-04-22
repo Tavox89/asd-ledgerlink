@@ -1,0 +1,450 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Currency {
+  VES
+  USD
+  EUR
+  COP
+}
+
+enum TransferEvidenceStatus {
+  PENDING
+  EMAIL_RECEIVED
+  AUTHENTICITY_HIGH
+  MATCH_FOUND
+  PRECONFIRMED
+  REQUIRES_REVIEW
+  REJECTED
+  CONFIRMED_MANUAL
+}
+
+enum GmailWatchStatus {
+  ACTIVE
+  EXPIRED
+  ERROR
+}
+
+enum InboundEmailStatus {
+  RECEIVED
+  PARSED
+  MATCHED
+  NEEDS_REVIEW
+  IGNORED
+  REJECTED
+}
+
+enum SenderMatchType {
+  NONE
+  EMAIL
+  DOMAIN
+}
+
+enum AuthStatus {
+  UNKNOWN
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum MatchStatus {
+  NO_MATCH
+  POSSIBLE_MATCH
+  STRONG_MATCH
+  PRECONFIRMED
+  NEEDS_REVIEW
+  REJECTED
+}
+
+enum ManualReviewStatus {
+  OPEN
+  RESOLVED
+  REJECTED
+  ESCALATED
+}
+
+enum WhatsAppConversationStatus {
+  IDLE
+  AWAITING_DETAILS
+  BLOCKED
+}
+
+enum WhatsAppVerificationAttemptStatus {
+  INCOMPLETE
+  AUTHORIZED
+  BLOCKED
+  REJECTED_UNAUTHORIZED
+  UNSUPPORTED
+}
+
+enum ActorType {
+  SYSTEM
+  USER
+  JOB
+}
+
+model CompanyProfile {
+  id                       String                       @id @default(cuid())
+  slug                     String                       @unique
+  name                     String
+  isDefault                Boolean                      @default(false)
+  isActive                 Boolean                      @default(true)
+  notes                    String?
+  createdAt                DateTime                     @default(now())
+  updatedAt                DateTime                     @updatedAt
+
+  gmailAccount             GmailAccount?
+  inboundEmails            InboundEmail[]
+  parsedBankNotifications  ParsedBankNotification[]
+  expectedTransfers        ExpectedTransfer[]
+  transferMatches          TransferMatch[]
+  manualReviews            ManualReview[]
+  allowedBankSenders       AllowedBankSender[]
+  whatsAppChannel          WhatsAppChannel?
+  whatsAppConversations    WhatsAppConversation[]
+  whatsAppInboundMessages  WhatsAppInboundMessage[]
+  whatsAppVerificationAttempts WhatsAppVerificationAttempt[]
+  auditLogs                AuditLog[]
+
+  @@index([isActive, name])
+}
+
+model WhatsAppChannel {
+  id                  String         @id @default(cuid())
+  companyId           String         @unique
+  phoneNumber         String         @unique
+  messagingServiceSid String?        @unique
+  allowedTestNumbers  String[]       @default([])
+  isActive            Boolean        @default(true)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  company             CompanyProfile @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([isActive, phoneNumber])
+}
+
+model GmailAccount {
+  id              String         @id @default(cuid())
+  companyId       String         @unique
+  email           String         @unique
+  googleAccountId String?        @unique
+  displayName     String?
+  profileSnapshot Json?
+  connectedAt     DateTime       @default(now())
+  lastSyncedAt    DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  company         CompanyProfile @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  token           GmailToken?
+  watches         GmailWatch[]
+  inboundEmails   InboundEmail[]
+}
+
+model GmailToken {
+  id             String       @id @default(cuid())
+  gmailAccountId String       @unique
+  accessToken    String
+  refreshToken   String?
+  scope          String
+  tokenType      String?
+  expiryDate     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  gmailAccount   GmailAccount @relation(fields: [gmailAccountId], references: [id], onDelete: Cascade)
+}
+
+model GmailWatch {
+  id               String          @id @default(cuid())
+  gmailAccountId   String
+  topicName        String
+  subscriptionName String
+  historyId        String
+  expirationAt     DateTime
+  status           GmailWatchStatus @default(ACTIVE)
+  lastPulledAt     DateTime?
+  lastError        String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  gmailAccount     GmailAccount     @relation(fields: [gmailAccountId], references: [id], onDelete: Cascade)
+
+  @@index([gmailAccountId, status])
+  @@index([expirationAt])
+}
+
+model InboundEmail {
+  id                 String             @id @default(cuid())
+  companyId          String
+  gmailAccountId     String
+  gmailMessageId     String             @unique
+  gmailThreadId      String?
+  historyId          String?
+  snippet            String?
+  internalDate       DateTime?
+  subject            String?
+  fromAddress        String?
+  toAddress          String?
+  replyToAddress     String?
+  returnPathAddress  String?
+  messageIdHeader    String?
+  bodyText           String?            @db.Text
+  bodyHtml           String?            @db.Text
+  rawPayload         Json?
+  authenticityStatus AuthStatus        @default(UNKNOWN)
+  authScore          Int                @default(0)
+  authenticityFlags  Json?
+  senderMatchType    SenderMatchType    @default(NONE)
+  processingStatus   InboundEmailStatus @default(RECEIVED)
+  receivedAt         DateTime           @default(now())
+  parsedAt           DateTime?
+  matchedAt          DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  company            CompanyProfile     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  gmailAccount       GmailAccount       @relation(fields: [gmailAccountId], references: [id], onDelete: Cascade)
+  headers            EmailHeader[]
+  parsedNotification ParsedBankNotification?
+  matches            TransferMatch[]
+  reviews            ManualReview[]
+
+  @@index([companyId, receivedAt(sort: Desc)])
+  @@index([gmailAccountId, receivedAt(sort: Desc)])
+  @@index([companyId, processingStatus, receivedAt(sort: Desc)])
+  @@index([companyId, authenticityStatus, authScore])
+}
+
+model EmailHeader {
+  id             String       @id @default(cuid())
+  inboundEmailId String
+  name           String
+  value          String       @db.Text
+  position       Int
+  createdAt      DateTime     @default(now())
+
+  inboundEmail   InboundEmail @relation(fields: [inboundEmailId], references: [id], onDelete: Cascade)
+
+  @@index([inboundEmailId, name])
+}
+
+model ParsedBankNotification {
+  id                      String         @id @default(cuid())
+  companyId               String
+  inboundEmailId          String         @unique
+  parserName              String
+  bankName                String?
+  reference               String?
+  amount                  Decimal?       @db.Decimal(18, 2)
+  currency                Currency?
+  transferAt              DateTime?
+  sender                  String?
+  subject                 String?
+  destinationAccountLast4 String?
+  originatorName          String?
+  confidenceScore         Int            @default(0)
+  extractedData           Json?
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+
+  company                 CompanyProfile @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  inboundEmail            InboundEmail   @relation(fields: [inboundEmailId], references: [id], onDelete: Cascade)
+  matches                 TransferMatch[]
+
+  @@index([companyId, bankName, transferAt])
+  @@index([companyId, reference])
+}
+
+model ExpectedTransfer {
+  id                      String                 @id @default(cuid())
+  companyId               String
+  referenceExpected       String
+  amountExpected          Decimal                @db.Decimal(18, 2)
+  currency                Currency
+  expectedBank            String
+  expectedWindowFrom      DateTime
+  expectedWindowTo        DateTime
+  destinationAccountLast4 String?
+  customerName            String?
+  notes                   String?
+  status                  TransferEvidenceStatus @default(PENDING)
+  matchSummary            Json?
+  confirmedAt             DateTime?
+  rejectedAt              DateTime?
+  deletedAt               DateTime?
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+
+  company                 CompanyProfile         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  matches                 TransferMatch[]
+  reviews                 ManualReview[]
+
+  @@index([companyId, status, expectedWindowFrom])
+  @@index([companyId, referenceExpected])
+  @@index([companyId, expectedBank, amountExpected, currency])
+}
+
+model TransferMatch {
+  id                   String                  @id @default(cuid())
+  companyId            String
+  inboundEmailId       String
+  expectedTransferId   String
+  parsedNotificationId String?
+  score                Int
+  status               MatchStatus
+  reasons              Json
+  criticalFlags        Json?
+  preconfirmedAt       DateTime?
+  reviewedAt           DateTime?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+
+  company              CompanyProfile          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  inboundEmail         InboundEmail            @relation(fields: [inboundEmailId], references: [id], onDelete: Cascade)
+  expectedTransfer     ExpectedTransfer        @relation(fields: [expectedTransferId], references: [id], onDelete: Cascade)
+  parsedNotification   ParsedBankNotification? @relation(fields: [parsedNotificationId], references: [id], onDelete: SetNull)
+  reviews              ManualReview[]
+
+  @@unique([inboundEmailId, expectedTransferId])
+  @@index([companyId, status, score])
+  @@index([companyId, expectedTransferId, createdAt(sort: Desc)])
+}
+
+model ManualReview {
+  id                 String             @id @default(cuid())
+  companyId          String
+  transferMatchId    String?
+  expectedTransferId String?
+  inboundEmailId     String?
+  status             ManualReviewStatus @default(OPEN)
+  priority           String             @default("medium")
+  notes              String?            @db.Text
+  resolutionNotes    String?            @db.Text
+  resolvedAt         DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  company            CompanyProfile     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  transferMatch      TransferMatch?     @relation(fields: [transferMatchId], references: [id], onDelete: SetNull)
+  expectedTransfer   ExpectedTransfer?  @relation(fields: [expectedTransferId], references: [id], onDelete: SetNull)
+  inboundEmail       InboundEmail?      @relation(fields: [inboundEmailId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, status, createdAt(sort: Desc)])
+}
+
+model AllowedBankSender {
+  id                String         @id @default(cuid())
+  companyId         String
+  bankName          String
+  senderEmail       String?
+  senderDomain      String?
+  replyToPattern    String?
+  returnPathPattern String?
+  messageIdPattern  String?
+  notes             String?
+  isActive          Boolean        @default(true)
+  metadata          Json?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  company           CompanyProfile @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, bankName, isActive])
+  @@index([companyId, senderEmail])
+  @@index([companyId, senderDomain])
+}
+
+model WhatsAppConversation {
+  id                   String                      @id @default(cuid())
+  companyId            String
+  phoneNumber          String
+  status               WhatsAppConversationStatus  @default(IDLE)
+  partialPayload       Json?
+  pendingFields        Json?
+  lastInboundMessageId String?
+  lastInboundAt        DateTime?
+  lastAttemptAt        DateTime?
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+
+  company              CompanyProfile              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  inboundMessages      WhatsAppInboundMessage[]
+  verificationAttempts WhatsAppVerificationAttempt[]
+
+  @@unique([companyId, phoneNumber])
+  @@index([companyId, status, updatedAt(sort: Desc)])
+}
+
+model WhatsAppInboundMessage {
+  id                   String                     @id @default(cuid())
+  companyId            String
+  conversationId       String?
+  twilioMessageSid     String?                    @unique
+  fromPhoneNumber      String
+  toPhoneNumber        String?
+  direction            String                     @default("inbound")
+  bodyText             String?                    @db.Text
+  numMedia             Int                        @default(0)
+  media                Json?
+  rawPayload           Json?
+  receivedAt           DateTime                   @default(now())
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+
+  company              CompanyProfile             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  conversation         WhatsAppConversation?      @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  verificationAttempts WhatsAppVerificationAttempt[]
+
+  @@index([companyId, fromPhoneNumber, receivedAt(sort: Desc)])
+}
+
+model WhatsAppVerificationAttempt {
+  id               String                           @id @default(cuid())
+  companyId        String
+  conversationId   String?
+  inboundMessageId String?
+  phoneNumber      String
+  status           WhatsAppVerificationAttemptStatus
+  sourceSummary    Json?
+  mergedInput      Json?
+  missingFields    Json?
+  dateStrategies   Json?
+  finalResult      Json?
+  rawPayload       Json?
+  createdAt        DateTime                         @default(now())
+  updatedAt        DateTime                         @updatedAt
+
+  company          CompanyProfile                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  conversation     WhatsAppConversation?            @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  inboundMessage   WhatsAppInboundMessage?          @relation(fields: [inboundMessageId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, phoneNumber, createdAt(sort: Desc)])
+  @@index([companyId, status, createdAt(sort: Desc)])
+}
+
+model AuditLog {
+  id         String         @id @default(cuid())
+  companyId  String
+  actorType  ActorType
+  actorId    String?
+  action     String
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  metadata   Json?
+  createdAt  DateTime       @default(now())
+
+  company    CompanyProfile @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, entityType, entityId])
+  @@index([companyId, action, createdAt(sort: Desc)])
+}
