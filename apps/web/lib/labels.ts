@@ -10,6 +10,7 @@ const LABELS: Record<string, string> = {
   confirmed_manual: 'confirmado manualmente',
   active: 'activo',
   inactive: 'inactivo',
+  revoked: 'revocado',
   expired: 'vencido',
   error: 'error',
   strong_match: 'coincidencia fuerte',
@@ -44,6 +45,7 @@ const LABELS: Record<string, string> = {
   expectedtransfer: 'transferencia esperada',
   transfermatch: 'coincidencia',
   allowedbanksender: 'remitente bancario permitido',
+  integration_api_token: 'token de integración',
   whatsappverificationattempt: 'intento de WhatsApp',
   transfer_created: 'transferencia creada',
   transfer_updated: 'transferencia actualizada',
@@ -59,6 +61,8 @@ const LABELS: Record<string, string> = {
   match_rejected: 'coincidencia rechazada',
   allowed_sender_created: 'remitente permitido creado',
   allowed_sender_updated: 'remitente permitido actualizado',
+  integration_token_created: 'token de integración creado',
+  integration_token_revoked: 'token de integración revocado',
   whatsapp_attempt_processed: 'intento de WhatsApp procesado',
 };
 

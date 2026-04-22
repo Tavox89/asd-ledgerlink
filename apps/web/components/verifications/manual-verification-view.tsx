@@ -70,7 +70,7 @@ export function ManualVerificationView() {
         throw new Error('La fecha de operación es obligatoria.');
       }
 
-      return api.post<VerificationRecord>(`/companies/${companySlug}/verifications/lookup`, {
+      return api.post<VerificationRecord>(`/companies/${companySlug}/verifications/operator-lookup`, {
         referenciaEsperada: form.referenciaEsperada,
         montoEsperado: Number(form.montoEsperado),
         moneda: form.moneda,

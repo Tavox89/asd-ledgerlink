@@ -106,6 +106,7 @@ model CompanyProfile {
   transferMatches          TransferMatch[]
   manualReviews            ManualReview[]
   allowedBankSenders       AllowedBankSender[]
+  integrationApiTokens     IntegrationApiToken[]
   whatsAppChannel          WhatsAppChannel?
   whatsAppConversations    WhatsAppConversation[]
   whatsAppInboundMessages  WhatsAppInboundMessage[]
@@ -113,6 +114,26 @@ model CompanyProfile {
   auditLogs                AuditLog[]
 
   @@index([isActive, name])
+}
+
+model IntegrationApiToken {
+  id              String         @id @default(cuid())
+  companyId       String
+  name            String
+  tokenPrefix     String         @unique
+  tokenHash       String
+  scopes          String[]
+  lastUsedAt      DateTime?
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+  createdByUserId String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  company         CompanyProfile @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([companyId, revokedAt, expiresAt])
 }
 
 model WhatsAppChannel {

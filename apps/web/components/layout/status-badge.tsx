@@ -13,6 +13,7 @@ const statusMap: Record<string, 'neutral' | 'success' | 'warning' | 'danger' | '
   confirmed_manual: 'success',
   active: 'success',
   inactive: 'neutral',
+  revoked: 'danger',
   expired: 'warning',
   error: 'danger',
   strong_match: 'success',

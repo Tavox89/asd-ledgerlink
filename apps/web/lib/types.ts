@@ -17,6 +17,26 @@ export interface CompanyRecord {
   } | null;
 }
 
+export interface IntegrationApiTokenRecord {
+  companyId?: string | null;
+  companySlug?: string | null;
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  scopes: string[];
+  lastUsedAt?: string | null;
+  expiresAt?: string | null;
+  revokedAt?: string | null;
+  createdByUserId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  isActive: boolean;
+}
+
+export interface IssuedIntegrationApiTokenRecord extends IntegrationApiTokenRecord {
+  token: string;
+}
+
 export interface DashboardSummary {
   companyId?: string | null;
   companySlug?: string | null;

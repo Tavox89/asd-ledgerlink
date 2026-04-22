@@ -58,6 +58,8 @@ pnpm dev
 
 Web runs on `http://localhost:3000` and API on `http://localhost:4000`.
 
+If you deploy LedgerLink on a public domain, change `WEB_APP_URL`, `NEXT_PUBLIC_API_URL`, and `GOOGLE_REDIRECT_URI` away from `localhost` before building or restarting the services. Gmail OAuth can succeed and still bounce the browser back to `localhost` if `WEB_APP_URL` stays misconfigured.
+
 ## Exact local commands
 
 ```bash
@@ -86,11 +88,12 @@ curl -X POST http://localhost:4000/gmail/pubsub/pull
 8. Review stored emails in `/companies/<slug>/emails`
 9. Create expected transfers in `/companies/<slug>/transfers/new`
 10. Use `/companies/<slug>/verifications` to query stored inbox evidence with `reference + amount + date` after the email arrives
-11. Use `POST /companies/:companySlug/verifications/authorize` when an external system needs a binary close/no-close authorization with evidence
-12. Create a tracked verification request from the same screen only when you need manual follow-up
-13. Point your Twilio WhatsApp webhook to `POST /channels/whatsapp/twilio/webhook` when you want to pilot inbound payment verification over WhatsApp
-14. Inspect generated matches in `/companies/<slug>/matches`
-15. Resolve edge cases in `/companies/<slug>/reviews`
+11. Create a company integration token before connecting WordPress/OpenPOS or another external bridge
+12. Use `POST /companies/:companySlug/verifications/authorize` when an external system needs a binary close/no-close authorization with evidence
+13. Create a tracked verification request from the same screen only when you need manual follow-up
+14. Point your Twilio WhatsApp webhook to `POST /channels/whatsapp/twilio/webhook` when you want to pilot inbound payment verification over WhatsApp
+15. Inspect generated matches in `/companies/<slug>/matches`
+16. Resolve edge cases in `/companies/<slug>/reviews`
 
 ## REST endpoints
 
@@ -102,12 +105,16 @@ Auth and Gmail:
 - `POST /companies`
 - `GET /companies/:companySlug`
 - `PATCH /companies/:companySlug`
+- `GET /companies/:companySlug/integration-tokens`
+- `POST /companies/:companySlug/integration-tokens`
+- `POST /companies/:companySlug/integration-tokens/:id/revoke`
 - `GET /companies/:companySlug/auth/google/start`
 - `GET /companies/:companySlug/gmail/profile`
 - `GET /companies/:companySlug/gmail/messages`
 - `POST /companies/:companySlug/gmail/messages/sync`
 - `GET /companies/:companySlug/gmail/messages/:id`
 - `GET /companies/:companySlug/verifications`
+- `POST /companies/:companySlug/verifications/operator-lookup`
 - `POST /companies/:companySlug/verifications/lookup`
 - `POST /companies/:companySlug/verifications/authorize`
 - `POST /companies/:companySlug/verifications/manual`
@@ -150,8 +157,22 @@ Legacy aliases for Gmail, verifications, transfers, matches, reviews, audit, and
 ## Local automation behavior
 
 - In development, the API starts a background Gmail Pub/Sub pull worker when `GMAIL_PUBSUB_WORKER_INTERVAL_MS` is greater than `0`.
-- `POST /companies/:companySlug/verifications/lookup` and `POST /companies/:companySlug/verifications/authorize` do one automatic Pub/Sub pull and recheck when the first pass still has no exact candidate.
+- `POST /companies/:companySlug/verifications/lookup` and `POST /companies/:companySlug/verifications/authorize` are now bearer-protected integration endpoints for external systems such as the ASD PayVerify Bridge.
+- `POST /companies/:companySlug/verifications/operator-lookup` keeps the internal operator UI flow working without a bearer token until operator auth exists.
+- Protected integration calls still do one automatic Pub/Sub pull and recheck when the first pass still has no exact candidate.
 - Exact verification windows use the email arrival time in the inbox (`internalDate`, with stored `receivedAt` as fallback), not the transfer date parsed from the email body.
+
+## Integration API tokens
+
+- Create one or more company-scoped integration tokens with `POST /companies/:companySlug/integration-tokens`.
+- The secret token value is returned only once at creation time.
+- LedgerLink stores only `tokenPrefix` plus a SHA-256 hash of the secret.
+- `POST /companies/:companySlug/verifications/authorize` requires scope `verifications:authorize`.
+- `POST /companies/:companySlug/verifications/lookup` requires scope `verifications:lookup`.
+- Missing, malformed, invalid, expired, or revoked bearer tokens return `401`.
+- Tokens that belong to another company or do not include the required scope return `403`.
+- `lastUsedAt` is updated only when the token passes company and scope validation.
+- Current limitation: token management endpoints are not yet protected by operator login/RBAC. Do not expose the admin surface publicly until operator auth exists.
 
 ## WhatsApp pilot behavior
 

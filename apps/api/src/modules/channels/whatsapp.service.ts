@@ -551,6 +551,10 @@ export async function processIncomingTwilioWebhook(
         phoneNumber,
         status: 'incomplete',
         missingFields,
+        imageFallbackApplied: shouldSendImageFallback,
+        visionFailureReason: imageExtraction?.failureReason ?? null,
+        visionConfidence: imageExtraction?.confidence ?? null,
+        visionRawTextPreview: imageExtraction?.rawText?.slice(0, 400) ?? null,
       },
     });
 

@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev -p 3000",
-    "build": "next build",
-    "start": "next start -p 3000",
+    "dev": "node ./scripts/with-root-env.mjs next dev -p 3000",
+    "build": "rm -rf .next && node ./scripts/with-root-env.mjs next build",
+    "start": "node ./scripts/with-root-env.mjs next start -p 3000",
     "lint": "next lint",
     "test": "vitest run --passWithNoTests"
   },
@@ -15,6 +15,7 @@
     "@tanstack/react-query": "^5.66.8",
     "clsx": "^2.1.1",
     "dayjs": "^1.11.13",
+    "dotenv": "^16.4.7",
     "lucide-react": "^0.503.0",
     "next": "^15.2.2",
     "next-themes": "^0.4.4",

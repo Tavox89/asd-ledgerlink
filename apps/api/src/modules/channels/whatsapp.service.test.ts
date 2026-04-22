@@ -302,6 +302,8 @@ describe('whatsapp service', () => {
       time: null,
       bank: null,
       confidence: 10,
+      rawText: '{"isTransferProof":false}',
+      failureReason: 'not_transfer_proof',
     });
 
     const result = await processIncomingTwilioWebhook({
@@ -317,6 +319,18 @@ describe('whatsapp service', () => {
     expect(result.status).toBe('incomplete');
     expect(result.replyText).toContain('no pude identificar un comprobante');
     expect(authorizeVerification).not.toHaveBeenCalled();
+    expect(prismaMock.whatsAppVerificationAttempt.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sourceSummary: expect.objectContaining({
+            imageExtraction: expect.objectContaining({
+              failureReason: 'not_transfer_proof',
+              rawText: '{"isTransferProof":false}',
+            }),
+          }),
+        }),
+      }),
+    );
   });
 
   it('sends the reply through Twilio API and returns empty TwiML', async () => {

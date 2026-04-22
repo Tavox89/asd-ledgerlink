@@ -17,9 +17,23 @@ function normalizeCurrency(value?: string | null): CurrencyCode | null {
 function parseJsonObject<T>(value: string): T | null {
   try {
     return JSON.parse(value) as T;
-  } catch {
-    return null;
+  } catch {}
+
+  const fencedMatch = value.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fencedMatch?.[1]) {
+    try {
+      return JSON.parse(fencedMatch[1].trim()) as T;
+    } catch {}
   }
+
+  const objectMatch = value.match(/\{[\s\S]*\}/);
+  if (objectMatch?.[0]) {
+    try {
+      return JSON.parse(objectMatch[0]) as T;
+    } catch {}
+  }
+
+  return null;
 }
 
 async function downloadMedia(url: string) {
@@ -57,11 +71,14 @@ export async function extractVerificationFromImage(
     model: env.OPENAI_VISION_MODEL,
     temperature: 0,
     max_tokens: 250,
+    response_format: {
+      type: 'json_object',
+    },
     messages: [
       {
         role: 'system',
         content:
-          'Devuelve solo JSON valido. Extrae datos solo si la imagen parece ser un comprobante o captura de transferencia.',
+          'Devuelve solo JSON valido. Considera como comprobante valido una captura real, un recorte, una captura reenviada por WhatsApp, un correo renderizado o una pantalla bancaria simple si muestra evidencia plausible de una transferencia. No exijas logos perfectos ni diseño formal; si ves datos de pago creibles, extraelos con menor confianza en vez de rechazar por completo.',
       },
       {
         role: 'user',
@@ -69,7 +86,7 @@ export async function extractVerificationFromImage(
           {
             type: 'text',
             text:
-              'Responde con este JSON exacto: {"isTransferProof":boolean,"reference":string|null,"amount":number|null,"currency":"USD"|"VES"|"EUR"|"COP"|null,"date":"YYYY-MM-DD"|null,"time":"HH:mm"|null,"bank":string|null,"confidence":number}. Si no es comprobante, pon isTransferProof=false y los campos en null.',
+              'Responde con este JSON exacto: {"isTransferProof":boolean,"reference":string|null,"amount":number|null,"currency":"USD"|"VES"|"EUR"|"COP"|null,"date":"YYYY-MM-DD"|null,"time":"HH:mm"|null,"bank":string|null,"confidence":number}. Marca isTransferProof=true si la imagen parece contener evidencia razonable de transferencia o pago aunque este recortada, reenviada, comprimida o parcialmente visible. Si faltan campos, deja null solo en los que no se vean. Usa isTransferProof=false solo cuando claramente no parezca un comprobante o captura de pago.',
           },
           {
             type: 'image_url',
@@ -104,6 +121,8 @@ export async function extractVerificationFromImage(
       time: null,
       bank: null,
       confidence: 0,
+      rawText,
+      failureReason: 'invalid_json',
     };
   }
 
@@ -119,5 +138,7 @@ export async function extractVerificationFromImage(
       typeof parsed.confidence === 'number'
         ? Math.max(0, Math.min(100, parsed.confidence))
         : 0,
+    rawText,
+    failureReason: parsed.isTransferProof ? undefined : 'not_transfer_proof',
   };
 }

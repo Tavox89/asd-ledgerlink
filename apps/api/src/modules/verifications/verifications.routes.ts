@@ -7,6 +7,7 @@ import {
 } from '@ledgerlink/shared';
 
 import { asyncHandler, validateRequest } from '../../lib/http';
+import { requireCompanyIntegrationScope } from '../../middleware/integration-auth';
 import { DEFAULT_COMPANY_SLUG } from '../companies/companies.service';
 import {
   authorizeVerification,
@@ -46,6 +47,15 @@ verificationsRouter.post(
 verificationsRouter.post(
   '/companies/:companySlug/verifications/lookup',
   validateRequest({ params: companySlugParamSchema, body: createManualVerificationSchema }),
+  requireCompanyIntegrationScope('verifications:lookup'),
+  asyncHandler(async (req, res) => {
+    res.json(await lookupVerification(req.params.companySlug, req.body));
+  }),
+);
+
+verificationsRouter.post(
+  '/companies/:companySlug/verifications/operator-lookup',
+  validateRequest({ params: companySlugParamSchema, body: createManualVerificationSchema }),
   asyncHandler(async (req, res) => {
     res.json(await lookupVerification(req.params.companySlug, req.body));
   }),
@@ -62,6 +72,7 @@ verificationsRouter.post(
 verificationsRouter.post(
   '/companies/:companySlug/verifications/authorize',
   validateRequest({ params: companySlugParamSchema, body: createManualVerificationSchema }),
+  requireCompanyIntegrationScope('verifications:authorize'),
   asyncHandler(async (req, res) => {
     res.json(await authorizeVerification(req.params.companySlug, req.body));
   }),

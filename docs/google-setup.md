@@ -21,6 +21,16 @@ Primary callback:
 
 - `http://localhost:4000/auth/google/callback`
 
+Public deployment example:
+
+- `https://ledgerlink.asdlabs.com.ve/auth/google/callback`
+
+Important:
+
+- `GOOGLE_REDIRECT_URI` must match one of the OAuth client's authorized redirect URIs exactly.
+- `WEB_APP_URL` must point to the public web origin. If it stays as `http://localhost:3000`, Gmail OAuth may complete successfully and still redirect the browser back to `localhost` after consent.
+- `NEXT_PUBLIC_API_URL` should also use the public API origin when the web app is no longer running locally.
+
 ## Gmail OAuth scope
 
 The OAuth flow is implemented for Gmail read-only access.

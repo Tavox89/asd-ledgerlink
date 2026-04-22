@@ -57,11 +57,14 @@ pnpm --filter @ledgerlink/web dev
 5. Leave the local worker enabled for automatic polling, or pull Pub/Sub messages manually once `GOOGLE_APPLICATION_CREDENTIALS` is configured.
 6. Inspect `/companies/<slug>/emails`.
 7. Use `/companies/<slug>/verifications` to look up stored inbox evidence with `reference + amount + date` after the email already arrived; if the first lookup still has no exact candidate, the backend now does one Pub/Sub pull and retries automatically.
-8. Use `POST /companies/:companySlug/verifications/authorize` to exercise the same exact yes/no decision an external checkout or backoffice flow would consume.
-9. Create a tracked verification request only when you want to keep the case open for operator follow-up or manual confirmation.
-10. Create an expected transfer when you want to manage the request directly from `/companies/<slug>/transfers`.
-11. Inspect `/companies/<slug>/matches`.
-12. Resolve ambiguous items in `/companies/<slug>/reviews`.
+8. Create an integration token with `POST /companies/:companySlug/integration-tokens` when you want to test the external bearer-protected verification contract.
+9. Use `POST /companies/:companySlug/verifications/authorize` with `Authorization: Bearer <token>` to exercise the same exact yes/no decision an external checkout or backoffice flow would consume.
+10. Use `POST /companies/:companySlug/verifications/lookup` with `Authorization: Bearer <token>` when the external bridge needs the richer operator-style payload.
+11. The web UI keeps using `/companies/:companySlug/verifications/operator-lookup` internally so local operator tests do not need a bearer token yet.
+12. Create a tracked verification request only when you want to keep the case open for operator follow-up or manual confirmation.
+13. Create an expected transfer when you want to manage the request directly from `/companies/<slug>/transfers`.
+14. Inspect `/companies/<slug>/matches`.
+15. Resolve ambiguous items in `/companies/<slug>/reviews`.
 
 ## WhatsApp pilot in local
 
@@ -74,6 +77,7 @@ pnpm --filter @ledgerlink/web dev
    - text with `referencia`, `monto`, and optional `fecha`
    - or both together
 6. Inspect persisted pilot traces with `GET /companies/:companySlug/channels/whatsapp/attempts`.
+7. When image OCR/classification fails, inspect `sourceSummary.imageExtraction.rawText` and `sourceSummary.imageExtraction.failureReason` in the stored attempt to see exactly what Vision returned before the fallback reply was sent.
 
 ## Demo data
 
@@ -90,6 +94,16 @@ The seed includes:
 2. Add real Google OAuth credentials in `.env` when you want to test live Gmail connectivity.
 3. Use `/companies/default/settings/gmail` or another company workspace to launch OAuth, sync recent inbox messages immediately, and then register the watch for Pub/Sub-based ingestion.
 4. Use `/companies/<slug>/verifications` to test the exact post-email lookup flow your online payment system will call with `reference + amount + date`.
-5. Wait for the local worker to ingest new Pub/Sub events automatically, or force it from `/companies/<slug>/settings/gmail` when you want an immediate refresh.
-6. Call `POST /companies/:companySlug/verifications/authorize` to validate the binary authorization contract and chosen evidence email.
-7. Review `/companies/<slug>/emails`, `/companies/<slug>/matches`, `/companies/<slug>/reviews`, and `/companies/<slug>/audit` to validate the full evidence trail, including emails marked `ignored`.
+5. Create a company integration token and keep the returned secret somewhere safe; LedgerLink will not show it again after creation.
+6. Wait for the local worker to ingest new Pub/Sub events automatically, or force it from `/companies/<slug>/settings/gmail` when you want an immediate refresh.
+7. Call `POST /companies/:companySlug/verifications/authorize` with `Authorization: Bearer <token>` to validate the binary authorization contract and chosen evidence email.
+8. Review `/companies/<slug>/emails`, `/companies/<slug>/matches`, `/companies/<slug>/reviews`, and `/companies/<slug>/audit` to validate the full evidence trail, including emails marked `ignored`.
+
+## Integration token behavior
+
+- The generated token format is `legtk_<public-id>_<secret>`.
+- LedgerLink stores only `tokenPrefix` and a SHA-256 hash of the secret.
+- `401` means the bearer token is missing, malformed, invalid, expired, or revoked.
+- `403` means the token is valid but belongs to another company or lacks the required scope.
+- `lastUsedAt` updates only after company and scope checks pass.
+- Current limitation: the token management endpoints are still operator-unprotected because LedgerLink does not have RBAC yet. Treat them as trusted-admin endpoints for now.

@@ -45,6 +45,8 @@ export interface VisionExtractionResult {
   time: string | null;
   bank: string | null;
   confidence: number;
+  rawText?: string;
+  failureReason?: 'invalid_json' | 'not_transfer_proof' | 'download_failed' | 'unknown';
 }
 
 export interface CollectedVerificationInput {

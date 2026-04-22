@@ -6,6 +6,7 @@ import type {
   GmailAccount,
   GmailToken,
   GmailWatch,
+  IntegrationApiToken,
   InboundEmail,
   ManualReview,
   ParsedBankNotification,
@@ -72,6 +73,29 @@ export function serializeAllowedBankSender(
   return {
     ...sender,
     ...serializeCompanyScope(sender),
+  };
+}
+
+export function serializeIntegrationApiToken(
+  token: IntegrationApiToken & {
+    company?: CompanyProfile | null;
+  },
+) {
+  const now = new Date();
+
+  return {
+    ...serializeCompanyScope(token),
+    id: token.id,
+    name: token.name,
+    tokenPrefix: token.tokenPrefix,
+    scopes: token.scopes,
+    lastUsedAt: token.lastUsedAt,
+    expiresAt: token.expiresAt,
+    revokedAt: token.revokedAt,
+    createdByUserId: token.createdByUserId,
+    createdAt: token.createdAt,
+    updatedAt: token.updatedAt,
+    isActive: token.revokedAt === null && (!token.expiresAt || token.expiresAt > now),
   };
 }
 
