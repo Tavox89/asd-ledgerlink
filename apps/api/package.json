@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsup src/server.ts --format esm --target node20 --out-dir dist",
+    "build": "pnpm prisma:generate && tsup src/server.ts --format esm --target node20 --out-dir dist",
     "start": "node dist/server.js",
     "lint": "ESLINT_USE_FLAT_CONFIG=false eslint \"src/**/*.{ts,tsx}\" --max-warnings=0",
     "test": "vitest run",
