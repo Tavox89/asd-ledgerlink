@@ -1,4 +1,3 @@
-import { GmailWatchStatus } from '@prisma/client';
 import { v1 } from '@google-cloud/pubsub';
 
 import { env } from '../../config/env';
@@ -6,6 +5,7 @@ import { writeAuditLog } from '../../lib/audit';
 import { ApiError } from '../../lib/http';
 import { logger } from '../../lib/logger';
 import { prisma } from '../../lib/prisma';
+import { GmailWatchStatus } from '../../lib/prisma-runtime';
 import { getCompanyBySlugOrThrow } from '../companies/companies.service';
 import { fetchAndIngestMessageByIdForEmailAccount, getAuthorizedGmailClientForEmail } from '../gmail/gmail.service';
 

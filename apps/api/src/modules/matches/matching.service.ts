@@ -1,9 +1,9 @@
-import { InboundEmailStatus, MatchStatus, TransferEvidenceStatus } from '@prisma/client';
 import type { ReviewMatchInput } from '@ledgerlink/shared';
 
 import { writeAuditLog } from '../../lib/audit';
 import { ApiError } from '../../lib/http';
 import { prisma } from '../../lib/prisma';
+import { InboundEmailStatus, MatchStatus, TransferEvidenceStatus } from '../../lib/prisma-runtime';
 import { serializeTransferMatch } from '../../lib/serializers';
 import { getCompanyBySlugOrThrow } from '../companies/companies.service';
 import { evaluateTransferMatches, mapTransferCandidate } from './matching.engine';

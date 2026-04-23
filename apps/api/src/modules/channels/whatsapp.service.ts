@@ -1,7 +1,4 @@
 import {
-  ActorType,
-  WhatsAppConversationStatus,
-  WhatsAppVerificationAttemptStatus,
   type Prisma,
 } from '@prisma/client';
 import { paginationQuerySchema, type CreateManualVerificationInput } from '@ledgerlink/shared';
@@ -9,6 +6,7 @@ import { paginationQuerySchema, type CreateManualVerificationInput } from '@ledg
 import { writeAuditLog } from '../../lib/audit';
 import { logger } from '../../lib/logger';
 import { prisma } from '../../lib/prisma';
+import { ActorType, WhatsAppConversationStatus, WhatsAppVerificationAttemptStatus } from '../../lib/prisma-runtime';
 import { serializeWhatsAppVerificationAttempt } from '../../lib/serializers';
 import { DEFAULT_COMPANY_SLUG, getCompanyBySlugOrThrow } from '../companies/companies.service';
 import { authorizeVerification } from '../verifications/verifications.service';

@@ -1,6 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
-import { ActorType } from '@prisma/client';
 import type {
   CreateIntegrationApiTokenInput,
   IntegrationTokenScope,
@@ -9,6 +8,7 @@ import type {
 import { writeAuditLog } from '../../lib/audit';
 import { ApiError } from '../../lib/http';
 import { prisma } from '../../lib/prisma';
+import { ActorType } from '../../lib/prisma-runtime';
 import { serializeIntegrationApiToken } from '../../lib/serializers';
 import { getCompanyBySlugOrThrow } from '../companies/companies.service';
 

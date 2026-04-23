@@ -1,4 +1,3 @@
-import { TransferEvidenceStatus } from '@prisma/client';
 import type {
   CreateExpectedTransferInput,
   UpdateExpectedTransferInput,
@@ -7,6 +6,7 @@ import type {
 import { writeAuditLog } from '../../lib/audit';
 import { ApiError } from '../../lib/http';
 import { prisma } from '../../lib/prisma';
+import { TransferEvidenceStatus } from '../../lib/prisma-runtime';
 import { serializeExpectedTransfer } from '../../lib/serializers';
 import { getCompanyBySlugOrThrow } from '../companies/companies.service';
 import { syncMatchesForTransfer } from '../matches/matching.service';

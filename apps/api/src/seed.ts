@@ -1,8 +1,12 @@
 import 'dotenv/config';
 
-import { ManualReviewStatus, MatchStatus, PrismaClient, TransferEvidenceStatus } from '@prisma/client';
-
 import { env } from './config/env';
+import {
+  ManualReviewStatus,
+  MatchStatus,
+  PrismaClient,
+  TransferEvidenceStatus,
+} from './lib/prisma-runtime';
 import { logger } from './lib/logger';
 import { normalizeWhatsAppPhone, parseAllowedTestNumbers } from './modules/channels/whatsapp.helpers';
 import { ingestNormalizedEmail } from './modules/email-processing/ingestion.service';

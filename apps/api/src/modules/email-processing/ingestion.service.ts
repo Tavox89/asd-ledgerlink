@@ -1,6 +1,7 @@
-import { AuthStatus, InboundEmailStatus, SenderMatchType, type EmailHeader, type InboundEmail } from '@prisma/client';
+import type { EmailHeader, InboundEmail } from '@prisma/client';
 
 import { prisma } from '../../lib/prisma';
+import { AuthStatus, InboundEmailStatus, SenderMatchType } from '../../lib/prisma-runtime';
 import { serializeInboundEmail } from '../../lib/serializers';
 import { clearMatchesForInboundEmail, syncMatchesForInboundEmail } from '../matches/matching.service';
 import { classifyAllowedSender, evaluateEmailAuthenticity } from './authenticity';

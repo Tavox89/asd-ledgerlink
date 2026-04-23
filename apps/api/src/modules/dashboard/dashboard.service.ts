@@ -1,6 +1,5 @@
-import { MatchStatus, ManualReviewStatus, TransferEvidenceStatus } from '@prisma/client';
-
 import { prisma } from '../../lib/prisma';
+import { MatchStatus, ManualReviewStatus, TransferEvidenceStatus } from '../../lib/prisma-runtime';
 import { serializeAuditLog } from '../../lib/serializers';
 import { getCompanyBySlugOrThrow } from '../companies/companies.service';
 

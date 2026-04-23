@@ -1,4 +1,4 @@
-import { GmailWatchStatus, TransferEvidenceStatus, type Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import type { AuthStatus } from '@prisma/client';
 import { google } from 'googleapis';
 
@@ -6,6 +6,7 @@ import { env } from '../../config/env';
 import { writeAuditLog } from '../../lib/audit';
 import { ApiError } from '../../lib/http';
 import { prisma } from '../../lib/prisma';
+import { GmailWatchStatus, TransferEvidenceStatus } from '../../lib/prisma-runtime';
 import { serializeGmailAccount, serializeInboundEmail } from '../../lib/serializers';
 import { getCompanyBySlugOrThrow } from '../companies/companies.service';
 import { ingestNormalizedEmail } from '../email-processing/ingestion.service';

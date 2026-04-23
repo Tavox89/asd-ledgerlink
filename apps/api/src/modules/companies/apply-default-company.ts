@@ -1,6 +1,6 @@
 import 'dotenv/config';
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '../../lib/prisma-runtime';
 
 import { env } from '../../config/env';
 import { logger } from '../../lib/logger';
