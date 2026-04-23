@@ -82,6 +82,36 @@ describe('verification routes', () => {
     });
   });
 
+  it('accepts authorize requests without a reference value', async () => {
+    const { verificationsRouter } = await import('./verifications.routes');
+    const app = express();
+    app.use(express.json());
+    app.use(verificationsRouter);
+    app.use(errorHandler);
+
+    authorizeVerification.mockResolvedValue({
+      authorized: false,
+      reasonCode: 'name',
+      candidateCount: 0,
+      evidence: null,
+    });
+
+    const response = await request(app).post('/verifications/authorize').send({
+      ...validPayload,
+      referenciaEsperada: '',
+    });
+
+    expect(response.status).toBe(200);
+    expect(authorizeVerification).toHaveBeenCalledWith('default', {
+      ...validPayload,
+      referenciaEsperada: null,
+    });
+    expect(response.body).toMatchObject({
+      authorized: false,
+      reasonCode: 'name',
+    });
+  });
+
   it('keeps POST /verifications/lookup wired to the operator summary flow', async () => {
     const { verificationsRouter } = await import('./verifications.routes');
     const app = express();

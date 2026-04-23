@@ -25,6 +25,10 @@ function toNullableString(value: string) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function displayReference(value?: string | null) {
+  return value?.trim() ? value : 'Sin referencia';
+}
+
 function renderAutoRefreshMessage(result: VerificationRecord) {
   const autoRefresh = result.autoRefresh;
   if (!autoRefresh?.attempted) {
@@ -69,6 +73,9 @@ export function ManualVerificationView() {
       if (!form.fechaOperacion) {
         throw new Error('La fecha de operación es obligatoria.');
       }
+      if (!toNullableString(form.nombreClienteOpcional)) {
+        throw new Error('El nombre de quien envía es obligatorio con la política actual.');
+      }
 
       return api.post<VerificationRecord>(`/companies/${companySlug}/verifications/operator-lookup`, {
         referenciaEsperada: form.referenciaEsperada,
@@ -97,6 +104,9 @@ export function ManualVerificationView() {
     mutationFn: () => {
       if (!form.fechaOperacion) {
         throw new Error('La fecha de operación es obligatoria.');
+      }
+      if (!toNullableString(form.nombreClienteOpcional)) {
+        throw new Error('El nombre de quien envía es obligatorio con la política actual.');
       }
 
       return api.post<VerificationRecord>(`/companies/${companySlug}/verifications/manual`, {
@@ -140,17 +150,17 @@ export function ManualVerificationView() {
   return (
     <AppShell
       title="Verificación manual"
-      description="Consulta el buzón con referencia, monto y fecha después de que llegue el correo. Ese mismo resultado exacto de autorización es el que ahora usa el API para permitir o bloquear el cierre de la transacción."
+      description="Consulta el buzón con nombre, monto y fecha después de que llegue el correo. La referencia sigue siendo opcional. Ese mismo resultado exacto de autorización es el que ahora usa el API para permitir o bloquear el cierre de la transacción."
     >
       <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <Card>
           <CardHeader>
             <CardTitle>Entrada de verificación</CardTitle>
-            <CardDescription>Usa la misma señal que enviaría un operador o un API externo después de que el correo de pago ya llegó.</CardDescription>
+            <CardDescription>Usa la misma señal que enviaría un operador o un API externo después de que el correo de pago ya llegó: nombre exacto del pago, monto y fecha. La referencia ya no es obligatoria.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
             <Input
-              placeholder="Referencia"
+              placeholder="Referencia (opcional)"
               value={form.referenciaEsperada}
               onChange={(event) => setForm((current) => ({ ...current, referenciaEsperada: event.target.value }))}
             />
@@ -185,7 +195,7 @@ export function ManualVerificationView() {
               onChange={(event) => setForm((current) => ({ ...current, cuentaDestinoUltimos4: event.target.value }))}
             />
             <Input
-              placeholder="Nombre del cliente"
+              placeholder="Nombre de quien envía"
               value={form.nombreClienteOpcional}
               onChange={(event) => setForm((current) => ({ ...current, nombreClienteOpcional: event.target.value }))}
             />
@@ -232,13 +242,13 @@ export function ManualVerificationView() {
                 <LoaderCircle className="size-8 animate-spin text-primary" />
                 <p className="mt-4 font-semibold">Revisando evidencia del buzón</p>
                 <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-                  El backend está revisando el buzón almacenado y lanzará una actualización automática de Pub/Sub si la evidencia aún no está disponible.
+                  El backend está revisando el buzón almacenado y lanzará una actualización automática de Pub/Sub si la evidencia aún no está disponible con la política actual de nombre, monto y fecha.
                 </p>
               </div>
             ) : !latestResult ? (
               <EmptyState
                 title="Aún no se ha evaluado ninguna verificación"
-                description="Consulta el buzón con referencia, monto y fecha después de que llegue el correo. Crea una solicitud registrada solo cuando el caso deba mantenerse abierto."
+                description="Consulta el buzón con nombre, monto y fecha después de que llegue el correo. La referencia es opcional. Crea una solicitud registrada solo cuando el caso deba mantenerse abierto."
               />
             ) : (
               <div className="space-y-4">
@@ -256,8 +266,11 @@ export function ManualVerificationView() {
                     {latestResult.persisted ? 'Solicitud registrada' : 'Consulta en vivo del buzón'}
                   </p>
                   <p className="mt-3 text-lg font-semibold">
-                    {latestResult.transfer.referenceExpected} ·{' '}
+                    {displayReference(latestResult.transfer.referenceExpected)} ·{' '}
                     {formatMoney(latestResult.transfer.amountExpected, latestResult.transfer.currency)}
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Nombre esperado: {latestResult.transfer.customerName ?? 'Sin nombre'}
                   </p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     Ventana: {formatDateTime(latestResult.transfer.expectedWindowFrom)} hasta{' '}
@@ -286,6 +299,12 @@ export function ManualVerificationView() {
                     </p>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {latestResult.evidence?.senderAddress ?? latestResult.strongestEmail?.fromAddress ?? 'Esperando evidencia'}
+                    </p>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Nombre extraído del pago:{' '}
+                      {latestResult.evidence?.originatorName ??
+                        latestResult.strongestEmail?.parsedNotification?.originatorName ??
+                        'Sin nombre detectado'}
                     </p>
                     <p className="mt-2 text-xs text-muted-foreground">
                       Tipo de coincidencia del remitente:{' '}
@@ -401,7 +420,8 @@ export function ManualVerificationView() {
                 {query.data.map((item) => (
                   <TR key={item.id}>
                     <TD>
-                      <div className="font-semibold">{item.transfer.referenceExpected}</div>
+                      <div className="font-semibold">{displayReference(item.transfer.referenceExpected)}</div>
+                      <div className="text-muted-foreground">{item.transfer.customerName ?? 'Sin nombre'}</div>
                       <div className="text-muted-foreground">{item.transfer.expectedBank}</div>
                     </TD>
                     <TD>{formatMoney(item.transfer.amountExpected, item.transfer.currency)}</TD>

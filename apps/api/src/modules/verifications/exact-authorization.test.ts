@@ -94,8 +94,8 @@ function buildCandidate(
 }
 
 describe('exact authorization evaluator', () => {
-  it('authorizes an exact sender-allowlisted payment inside the expected window', () => {
-    const spec = buildExactAuthorizationSpec('company-default', buildInput());
+  it('authorizes an exact sender-allowlisted payment inside the expected window even when the reference is omitted', () => {
+    const spec = buildExactAuthorizationSpec('company-default', buildInput({ referenciaEsperada: null }));
 
     const result = evaluateExactAuthorization(spec, [buildCandidate()]);
 
@@ -106,7 +106,7 @@ describe('exact authorization evaluator', () => {
     expect(result.evidence?.gmailMessageId).toBe('gmail-email-1');
   });
 
-  it('rejects when the reference matches but the amount does not', () => {
+  it('rejects when the normalized sender name matches but the amount does not', () => {
     const spec = buildExactAuthorizationSpec('company-default', buildInput());
 
     const result = evaluateExactAuthorization(spec, [
@@ -120,6 +120,29 @@ describe('exact authorization evaluator', () => {
     expect(result.authorized).toBe(false);
     expect(result.reasonCode).toBe('amount');
     expect(result.candidateCount).toBe(0);
+  });
+
+  it('matches the sender name exactly while ignoring case and accents', () => {
+    const spec = buildExactAuthorizationSpec(
+      'company-default',
+      buildInput({
+        referenciaEsperada: null,
+        nombreClienteOpcional: 'guillermo diaz ortiz',
+      }),
+    );
+
+    const result = evaluateExactAuthorization(spec, [
+      buildCandidate({
+        parsedNotification: {
+          reference: null,
+          originatorName: 'GUILLÉRMO DÍAZ ORTIZ',
+        },
+      }),
+    ]);
+
+    expect(result.authorized).toBe(true);
+    expect(result.reasonCode).toBe('authorized');
+    expect(result.evidence?.originatorName).toBe('GUILLÉRMO DÍAZ ORTIZ');
   });
 
   it('rejects when exact payment evidence falls outside the expected window', () => {
@@ -178,6 +201,29 @@ describe('exact authorization evaluator', () => {
     expect(result.reasonCode).toBe('sender');
     expect(result.candidateCount).toBe(0);
     expect(result.evidence?.senderMatchType).toBe('none');
+  });
+
+  it('rejects when the sender is allowlisted but the normalized payment name does not match', () => {
+    const spec = buildExactAuthorizationSpec(
+      'company-default',
+      buildInput({
+        referenciaEsperada: null,
+        nombreClienteOpcional: 'Guillermo Diaz',
+      }),
+    );
+
+    const result = evaluateExactAuthorization(spec, [
+      buildCandidate({
+        parsedNotification: {
+          reference: null,
+          originatorName: 'Pedro Perez',
+        },
+      }),
+    ]);
+
+    expect(result.authorized).toBe(false);
+    expect(result.reasonCode).toBe('name');
+    expect(result.candidateCount).toBe(0);
   });
 
   it('chooses evidence deterministically across duplicate exact candidates', () => {

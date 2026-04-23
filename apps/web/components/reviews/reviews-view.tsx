@@ -52,7 +52,7 @@ export function ReviewsView() {
                     <TD>
                       <StatusBadge status={review.status} />
                     </TD>
-                    <TD>{review.expectedTransfer?.referenceExpected ?? 'N/D'}</TD>
+                    <TD>{review.expectedTransfer?.referenceExpected || 'Sin referencia'}</TD>
                     <TD>{review.inboundEmail?.subject ?? 'N/D'}</TD>
                     <TD>{review.notes ?? 'Sin notas'}</TD>
                   </TR>

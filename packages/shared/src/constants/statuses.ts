@@ -29,4 +29,4 @@ export const authStatusValues = ['unknown', 'low', 'medium', 'high'] as const;
 export const reviewStatusValues = ['open', 'resolved', 'rejected', 'escalated'] as const;
 export const gmailWatchStatusValues = ['active', 'expired', 'error'] as const;
 export const senderMatchTypeValues = ['none', 'email', 'domain'] as const;
-export const verificationReasonCodeValues = ['authorized', 'sender', 'reference', 'amount', 'date'] as const;
+export const verificationReasonCodeValues = ['authorized', 'sender', 'reference', 'name', 'amount', 'date'] as const;

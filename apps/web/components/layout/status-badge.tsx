@@ -35,6 +35,7 @@ const statusMap: Record<string, 'neutral' | 'success' | 'warning' | 'danger' | '
   none: 'neutral',
   sender: 'warning',
   reference: 'warning',
+  name: 'warning',
   amount: 'warning',
   date: 'warning',
   authorized: 'success',

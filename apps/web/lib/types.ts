@@ -213,6 +213,7 @@ export interface VerificationRecord {
     senderMatchType: string;
     senderAddress?: string | null;
     subject?: string | null;
+    originatorName?: string | null;
     arrivalTimestamp?: string | null;
     parsedPaymentTimestamp?: string | null;
     receivedAt: string;

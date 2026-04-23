@@ -56,7 +56,7 @@ pnpm --filter @ledgerlink/web dev
 4. Register the Gmail watch when you also want Pub/Sub-based ingestion.
 5. Leave the local worker enabled for automatic polling, or pull Pub/Sub messages manually once `GOOGLE_APPLICATION_CREDENTIALS` is configured.
 6. Inspect `/companies/<slug>/emails`.
-7. Use `/companies/<slug>/verifications` to look up stored inbox evidence with `reference + amount + date` after the email already arrived; if the first lookup still has no exact candidate, the backend now does one Pub/Sub pull and retries automatically.
+7. Use `/companies/<slug>/verifications` to look up stored inbox evidence with `name + amount + date` after the email already arrived; `reference` is optional support data. If the first lookup still has no exact candidate, the backend now does one Pub/Sub pull and retries automatically.
 8. Create an integration token with `POST /companies/:companySlug/integration-tokens` when you want to test the external bearer-protected verification contract.
 9. Use `POST /companies/:companySlug/verifications/authorize` with `Authorization: Bearer <token>` to exercise the same exact yes/no decision an external checkout or backoffice flow would consume.
 10. Use `POST /companies/:companySlug/verifications/lookup` with `Authorization: Bearer <token>` when the external bridge needs the richer operator-style payload.
@@ -74,7 +74,7 @@ pnpm --filter @ledgerlink/web dev
 4. Remember that this temporarily moves the line away from `cerebro`; the same line cannot deliver to both apps at once.
 5. Send one of these to the WhatsApp line from an allowlisted number:
    - a screenshot/comprobante
-   - text with `referencia`, `monto`, and optional `fecha`
+   - text with `nombre`, `monto`, optional `referencia`, and optional `fecha`
    - or both together
 6. Inspect persisted pilot traces with `GET /companies/:companySlug/channels/whatsapp/attempts`.
 7. When image OCR/classification fails, inspect `sourceSummary.imageExtraction.rawText` and `sourceSummary.imageExtraction.failureReason` in the stored attempt to see exactly what Vision returned before the fallback reply was sent.
@@ -93,7 +93,7 @@ The seed includes:
 1. Load the seed so the UI already shows emails, transfers, matches, reviews, and audit logs.
 2. Add real Google OAuth credentials in `.env` when you want to test live Gmail connectivity.
 3. Use `/companies/default/settings/gmail` or another company workspace to launch OAuth, sync recent inbox messages immediately, and then register the watch for Pub/Sub-based ingestion.
-4. Use `/companies/<slug>/verifications` to test the exact post-email lookup flow your online payment system will call with `reference + amount + date`.
+4. Use `/companies/<slug>/verifications` to test the exact post-email lookup flow your online payment system will call with `name + amount + date`; `reference` is optional.
 5. Create a company integration token and keep the returned secret somewhere safe; LedgerLink will not show it again after creation.
 6. Wait for the local worker to ingest new Pub/Sub events automatically, or force it from `/companies/<slug>/settings/gmail` when you want an immediate refresh.
 7. Call `POST /companies/:companySlug/verifications/authorize` with `Authorization: Bearer <token>` to validate the binary authorization contract and chosen evidence email.

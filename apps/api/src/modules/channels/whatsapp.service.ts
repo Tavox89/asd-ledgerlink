@@ -83,7 +83,7 @@ function buildVerificationInput(
     toleranciaMinutos: strategy.toleranciaMinutos,
     bancoEsperado: input.bank,
     cuentaDestinoUltimos4: null,
-    nombreClienteOpcional: null,
+    nombreClienteOpcional: input.customerName,
     notas: buildVerificationNotes(strategy),
   };
 }
@@ -443,8 +443,10 @@ export async function processIncomingTwilioWebhook(
   const media = parseTwilioMedia(body);
   const firstImage = findFirstImageAttachment(media);
   const hasUnsupportedMedia = media.length > 0 && !firstImage;
-  const textExtraction = extractVerificationFromText(body.Body);
-  const imageExtraction = firstImage?.url ? await extractVerificationFromImage(firstImage.url) : null;
+  const textExtraction = extractVerificationFromText(body.Body, inboundMessage.receivedAt);
+  const imageExtraction = firstImage?.url
+    ? await extractVerificationFromImage(firstImage.url, inboundMessage.receivedAt)
+    : null;
   const mergedInput = mergeCollectedVerificationInput(
     parseStoredPartialPayload(conversation.partialPayload),
     textExtraction,

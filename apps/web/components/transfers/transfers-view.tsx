@@ -70,7 +70,7 @@ export function TransfersView() {
                 {query.data.map((item) => (
                   <TR key={item.id}>
                     <TD>
-                      <div className="font-semibold">{item.referenceExpected}</div>
+                      <div className="font-semibold">{item.referenceExpected || 'Sin referencia'}</div>
                       <div className="text-muted-foreground">{item.expectedBank}</div>
                     </TD>
                     <TD>{formatMoney(item.amountExpected, item.currency)}</TD>

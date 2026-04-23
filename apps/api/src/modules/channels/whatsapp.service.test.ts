@@ -158,6 +158,7 @@ describe('whatsapp service', () => {
     });
 
     expect(result.status).toBe('incomplete');
+    expect(result.replyText).toContain('nombre');
     expect(result.replyText).toContain('monto');
     expect(authorizeVerification).not.toHaveBeenCalled();
     expect(prismaMock.whatsAppConversation.update).toHaveBeenCalledWith(
@@ -174,7 +175,7 @@ describe('whatsapp service', () => {
 
     prismaMock.whatsAppInboundMessage.create.mockResolvedValue(
       buildInboundMessage({
-        bodyText: 'ref 000123456124 monto 123 fecha 17/04/2026 14:38',
+        bodyText: 'nombre Guillermo Diaz ref 000123456124 monto 123 fecha 17/04/2026 14:38',
         numMedia: 1,
         media: [{ index: 0, contentType: 'image/jpeg', url: 'https://example.com/image.jpg' }],
       }),
@@ -182,6 +183,7 @@ describe('whatsapp service', () => {
     extractVerificationFromImage.mockResolvedValue({
       isTransferProof: true,
       reference: 'IMG-REFERENCE',
+      customerName: 'Imagen Nombre',
       amount: 999,
       currency: 'VES',
       date: '2026-04-17',
@@ -220,7 +222,7 @@ describe('whatsapp service', () => {
     const result = await processIncomingTwilioWebhook({
       From: 'whatsapp:+584121112233',
       To: 'whatsapp:+10000000000',
-      Body: 'ref 000123456124 monto 123 fecha 17/04/2026 14:38',
+      Body: 'nombre Guillermo Diaz ref 000123456124 monto 123 fecha 17/04/2026 14:38',
       MessageSid: 'SM-MIXED',
       NumMedia: '1',
       MediaUrl0: 'https://example.com/image.jpg',
@@ -232,12 +234,14 @@ describe('whatsapp service', () => {
     expect(authorizeVerification.mock.calls[0]?.[0]).toBe('default');
     expect(authorizeVerification.mock.calls[0]?.[1]).toMatchObject({
       referenciaEsperada: '000123456124',
+      nombreClienteOpcional: 'Guillermo Diaz',
       montoEsperado: 123,
       moneda: 'VES',
     });
     expect(authorizeVerification.mock.calls[1]?.[0]).toBe('default');
     expect(authorizeVerification.mock.calls[1]?.[1]).toMatchObject({
       referenciaEsperada: '000123456124',
+      nombreClienteOpcional: 'Guillermo Diaz',
       montoEsperado: 123,
       fechaOperacion: expect.stringContaining('2026-04-17T'),
     });
@@ -278,7 +282,7 @@ describe('whatsapp service', () => {
     const result = await processIncomingTwilioWebhook({
       From: 'whatsapp:+584121112233',
       To: 'whatsapp:+10000000000',
-      Body: 'referencia 000123456124 monto 123 fecha 17 de abril de 2026',
+      Body: 'nombre Guillermo Diaz referencia 000123456124 monto 123 fecha 17 de abril de 2026',
       MessageSid: 'SM-DATE-ONLY',
       NumMedia: '0',
     });
@@ -286,6 +290,7 @@ describe('whatsapp service', () => {
     expect(result.status).toBe('authorized');
     expect(authorizeVerification.mock.calls[1]?.[0]).toBe('default');
     expect(authorizeVerification.mock.calls[1]?.[1]).toMatchObject({
+      nombreClienteOpcional: 'Guillermo Diaz',
       toleranciaMinutos: 720,
     });
   });
@@ -296,6 +301,7 @@ describe('whatsapp service', () => {
     extractVerificationFromImage.mockResolvedValue({
       isTransferProof: false,
       reference: null,
+      customerName: null,
       amount: null,
       currency: null,
       date: null,
@@ -353,7 +359,7 @@ describe('whatsapp service', () => {
     const xml = await buildWebhookReplyXml({
       From: 'whatsapp:+584121112233',
       To: 'whatsapp:+10000000000',
-      Body: 'ref 000123456124 monto 123',
+      Body: 'nombre Guillermo Diaz ref 000123456124 monto 123',
       MessageSid: 'SM-OUTBOUND-TEST',
       NumMedia: '0',
     });
@@ -399,7 +405,7 @@ describe('whatsapp service', () => {
     const xml = await buildWebhookReplyXml({
       From: 'whatsapp:+584121112233',
       To: 'whatsapp:+10000000000',
-      Body: 'ref 000123456124 monto 123',
+      Body: 'nombre Guillermo Diaz ref 000123456124 monto 123',
       MessageSid: 'SM-EXISTING',
       NumMedia: '0',
     });

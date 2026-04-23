@@ -32,6 +32,7 @@ const LABELS: Record<string, string> = {
   none: 'ninguno',
   sender: 'remitente',
   reference: 'referencia',
+  name: 'nombre',
   amount: 'monto',
   date: 'fecha',
   authorized: 'autorizado',

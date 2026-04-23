@@ -14,7 +14,8 @@ export interface VerificationLookupWindow {
 
 export interface ExactAuthorizationSpec extends VerificationLookupWindow {
   companyId: string;
-  referenceExpected: string;
+  referenceExpected: string | null;
+  customerNameExpected: string | null;
   amountExpected: number;
   currency: CreateManualVerificationInput['moneda'];
 }
@@ -33,6 +34,7 @@ export interface AuthorizationEvidenceRecord {
   senderMatchType: SenderMatchType;
   senderAddress: string | null;
   subject: string | null;
+  originatorName: string | null;
   arrivalTimestamp: string | null;
   parsedPaymentTimestamp: string | null;
   receivedAt: string;
@@ -133,6 +135,19 @@ function exactReferenceMatch(
   return Boolean(parsedReference) && Boolean(expectedReference) && parsedReference === expectedReference;
 }
 
+function exactCustomerNameMatch(
+  email: VerificationCandidateEmail,
+  spec: ExactAuthorizationSpec,
+) {
+  const parsedCustomerName = normalizeComparable(email.parsedNotification?.originatorName);
+  const expectedCustomerName = normalizeComparable(spec.customerNameExpected);
+  return (
+    Boolean(parsedCustomerName) &&
+    Boolean(expectedCustomerName) &&
+    parsedCustomerName === expectedCustomerName
+  );
+}
+
 function exactAmountMatch(
   email: VerificationCandidateEmail,
   spec: ExactAuthorizationSpec,
@@ -193,6 +208,7 @@ function serializeEvidence(email: VerificationCandidateEmail | null) {
     senderMatchType: email.senderMatchType.toLowerCase() as SenderMatchType,
     senderAddress: email.fromAddress ?? null,
     subject: email.subject ?? null,
+    originatorName: email.parsedNotification?.originatorName ?? null,
     arrivalTimestamp: getArrivalTimestamp(email)?.toISOString() ?? null,
     parsedPaymentTimestamp: getParsedPaymentTimestamp(email)?.toISOString() ?? null,
     receivedAt: email.receivedAt.toISOString(),
@@ -218,6 +234,7 @@ function buildEvidenceRecord(email: VerificationCandidateEmail | null): Authoriz
     senderMatchType: serialized.senderMatchType,
     senderAddress: serialized.senderAddress,
     subject: serialized.subject,
+    originatorName: serialized.originatorName,
     arrivalTimestamp: serialized.arrivalTimestamp,
     parsedPaymentTimestamp: serialized.parsedPaymentTimestamp,
     receivedAt: serialized.receivedAt,
@@ -257,7 +274,8 @@ export function buildExactAuthorizationSpec(
   return {
     companyId,
     ...window,
-    referenceExpected: input.referenciaEsperada,
+    referenceExpected: input.referenciaEsperada ?? null,
+    customerNameExpected: input.nombreClienteOpcional ?? null,
     amountExpected: input.montoEsperado,
     currency: input.moneda,
   };
@@ -266,37 +284,42 @@ export function buildExactAuthorizationSpec(
 export async function loadVerificationCandidateEmails(
   spec: ExactAuthorizationSpec,
 ) {
+  const candidateFilters: Prisma.InboundEmailWhereInput[] = [
+    {
+      parsedNotification: {
+        is: {
+          amount: spec.amountExpected,
+        },
+      },
+    },
+    {
+      internalDate: {
+        gte: spec.expectedWindowFrom,
+        lte: spec.expectedWindowTo,
+      },
+    },
+    {
+      receivedAt: {
+        gte: spec.expectedWindowFrom,
+        lte: spec.expectedWindowTo,
+      },
+    },
+  ];
+
+  if (spec.referenceExpected) {
+    candidateFilters.unshift({
+      parsedNotification: {
+        is: {
+          reference: spec.referenceExpected,
+        },
+      },
+    });
+  }
+
   const candidateEmails = await prisma.inboundEmail.findMany({
     where: {
       companyId: spec.companyId,
-      OR: [
-        {
-          parsedNotification: {
-            is: {
-              reference: spec.referenceExpected,
-            },
-          },
-        },
-        {
-          parsedNotification: {
-            is: {
-              amount: spec.amountExpected,
-            },
-          },
-        },
-        {
-          internalDate: {
-            gte: spec.expectedWindowFrom,
-            lte: spec.expectedWindowTo,
-          },
-        },
-        {
-          receivedAt: {
-            gte: spec.expectedWindowFrom,
-            lte: spec.expectedWindowTo,
-          },
-        },
-      ],
+      OR: candidateFilters,
     },
     include: {
       company: true,
@@ -324,12 +347,15 @@ export function evaluateExactAuthorization(
   const senderCandidates = candidateEmails.filter(
     (email) => email.senderMatchType !== 'NONE',
   );
-  const looseReferenceCandidates = candidateEmails.filter((email) => exactReferenceMatch(email, spec));
-  const referenceCandidates = senderCandidates.filter((email) => exactReferenceMatch(email, spec));
-  const looseAmountCandidates = looseReferenceCandidates.filter(
+  const looseReferenceCandidates = spec.referenceExpected
+    ? candidateEmails.filter((email) => exactReferenceMatch(email, spec))
+    : [];
+  const nameCandidates = senderCandidates.filter((email) => exactCustomerNameMatch(email, spec));
+  const looseNameCandidates = candidateEmails.filter((email) => exactCustomerNameMatch(email, spec));
+  const looseAmountCandidates = looseNameCandidates.filter(
     (email) => exactAmountMatch(email, spec) && currencyCompatible(email, spec),
   );
-  const amountCandidates = referenceCandidates.filter(
+  const amountCandidates = nameCandidates.filter(
     (email) => exactAmountMatch(email, spec) && currencyCompatible(email, spec),
   );
   const looseDateCandidates = looseAmountCandidates.filter((email) => withinExpectedWindow(email, spec));
@@ -339,18 +365,19 @@ export function evaluateExactAuthorization(
     ? 'authorized'
     : senderCandidates.length === 0
       ? 'sender'
-      : referenceCandidates.length === 0
-        ? 'reference'
+      : nameCandidates.length === 0
+        ? 'name'
         : amountCandidates.length === 0
           ? 'amount'
           : 'date';
   const evidencePool = selectEvidencePool([
     exactCandidates,
     amountCandidates,
-    referenceCandidates,
+    nameCandidates,
     senderCandidates,
     looseDateCandidates,
     looseAmountCandidates,
+    looseNameCandidates,
     looseReferenceCandidates,
     candidateEmails,
   ]);

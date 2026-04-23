@@ -27,6 +27,7 @@ export interface WhatsAppMediaAttachment {
 
 export interface TextExtractionResult {
   reference: string | null;
+  customerName: string | null;
   amount: number | null;
   currency: CurrencyCode | null;
   bank: string | null;
@@ -39,6 +40,7 @@ export interface TextExtractionResult {
 export interface VisionExtractionResult {
   isTransferProof: boolean;
   reference: string | null;
+  customerName: string | null;
   amount: number | null;
   currency: CurrencyCode | null;
   date: string | null;
@@ -51,6 +53,7 @@ export interface VisionExtractionResult {
 
 export interface CollectedVerificationInput {
   reference: string | null;
+  customerName: string | null;
   amount: number | null;
   currency: CurrencyCode;
   currencySource: 'text' | 'image' | 'state' | 'default';
@@ -117,6 +120,30 @@ function extractStructuredAmount(text: string) {
   return extractAmountAndCurrency(text);
 }
 
+function cleanCustomerName(value: string) {
+  return normalizeDisplayText(value)
+    .replace(/[.,;:]+$/g, '')
+    .replace(/\s+\b(?:from|checking|savings|today|fecha|date|monto|amount|referencia|ref)\b.*$/i, '')
+    .trim();
+}
+
+function extractCustomerName(text: string) {
+  const patterns = [
+    /enrolled as\s*[:\-]?\s*([A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+){0,5})(?=\s+(?:from|send date|fecha|date|monto|amount|today|checking|savings|referencia|ref)\b|$)/i,
+    /(?:to|para)\s+([A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+){0,5})(?=\s+(?:enrolled as|from|send date|fecha|date|monto|amount|today|checking|savings|referencia|ref)\b|$)/i,
+    /(?:nombre|ordenante|originador|cliente|remitente|beneficiario)\s*[:\-]?\s*([A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+){0,5})(?=\s+(?:monto|amount|fecha|date|banco|bank|referencia|ref|notas?|notes?)\b|$)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      return cleanCustomerName(match[1]);
+    }
+  }
+
+  return null;
+}
+
 export function normalizeWhatsAppPhone(value?: string | null) {
   if (!value) {
     return null;
@@ -181,7 +208,7 @@ function buildIsoDate(year: number, monthIndex: number, day: number) {
   return `${year}-${zeroPad(monthIndex + 1)}-${zeroPad(day)}`;
 }
 
-export function extractDateCandidate(text: string) {
+export function extractDateCandidate(text: string, referenceDate: Date = new Date()) {
   const normalized = text.trim();
   if (!normalized) {
     return { date: null, time: null };
@@ -229,17 +256,37 @@ export function extractDateCandidate(text: string) {
     }
   }
 
+  const relativeMatch = normalized.match(
+    /\b(today|hoy|yesterday|ayer)\b(?:[,\s]+(?:at|a\s+las)?\s*(\d{1,2}:\d{2})(?:\s*(am|pm))?)?/i,
+  );
+  if (relativeMatch) {
+    const [, relativeDay, rawTime, meridiem] = relativeMatch;
+    const baseDate =
+      /yesterday|ayer/i.test(relativeDay)
+        ? dayjs(referenceDate).subtract(1, 'day')
+        : dayjs(referenceDate);
+
+    return {
+      date: baseDate.format('YYYY-MM-DD'),
+      time: rawTime ? normalizeMeridiemTime(rawTime, meridiem) : null,
+    };
+  }
+
   return {
     date: null,
     time: null,
   };
 }
 
-export function extractVerificationFromText(text: string | null | undefined): TextExtractionResult {
+export function extractVerificationFromText(
+  text: string | null | undefined,
+  referenceDate: Date = new Date(),
+): TextExtractionResult {
   const normalizedText = normalizeDisplayText(text);
   if (!normalizedText) {
     return {
       reference: null,
+      customerName: null,
       amount: null,
       currency: null,
       bank: null,
@@ -251,17 +298,20 @@ export function extractVerificationFromText(text: string | null | undefined): Te
   }
 
   const amountSnapshot = extractStructuredAmount(normalizedText);
-  const { date, time } = extractDateCandidate(normalizedText);
+  const { date, time } = extractDateCandidate(normalizedText, referenceDate);
+  const customerName = extractCustomerName(normalizedText);
 
   let confidence = 20;
   if (amountSnapshot.amount !== null) confidence += 20;
   if (extractReference(normalizedText)) confidence += 20;
+  if (customerName) confidence += 10;
   if (date) confidence += 10;
   if (time) confidence += 5;
   if (inferBankName(normalizedText, null)) confidence += 5;
 
   return {
     reference: extractReference(normalizedText),
+    customerName,
     amount: amountSnapshot.amount,
     currency: amountSnapshot.currency,
     bank: inferBankName(normalizedText, null),
@@ -283,6 +333,12 @@ export function mergeCollectedVerificationInput(
     textExtraction.reference ??
     imageFields?.reference ??
     existingState?.reference ??
+    null;
+
+  const customerName =
+    textExtraction.customerName ??
+    imageFields?.customerName ??
+    existingState?.customerName ??
     null;
 
   const amount =
@@ -326,6 +382,7 @@ export function mergeCollectedVerificationInput(
 
   return {
     reference,
+    customerName,
     amount,
     currency: explicitCurrency ?? 'USD',
     currencySource,
@@ -337,8 +394,8 @@ export function mergeCollectedVerificationInput(
 
 export function getMissingVerificationFields(input: CollectedVerificationInput) {
   const missing: string[] = [];
-  if (!input.reference) {
-    missing.push('referencia');
+  if (!input.customerName) {
+    missing.push('nombre');
   }
   if (input.amount === null || input.amount === undefined) {
     missing.push('monto');
@@ -393,6 +450,8 @@ function reasonRank(reasonCode: VerificationReasonCode) {
       return 3;
     case 'amount':
       return 2;
+    case 'name':
+      return 1;
     case 'reference':
       return 1;
     default:
@@ -432,6 +491,8 @@ export function translateVerificationReason(reasonCode: VerificationReasonCode) 
   switch (reasonCode) {
     case 'sender':
       return 'el remitente del correo no coincide con una regla permitida';
+    case 'name':
+      return 'el nombre del pago no coincide con la evidencia encontrada';
     case 'reference':
       return 'la referencia no coincide con la evidencia encontrada';
     case 'amount':
@@ -444,7 +505,7 @@ export function translateVerificationReason(reasonCode: VerificationReasonCode) 
 }
 
 export function buildAuthorizedReply(input: CollectedVerificationInput, strategyLabel: string) {
-  return `Si, pago valido.\nReferencia: ${input.reference}\nMonto: ${formatCurrency(input.amount ?? 0, input.currency)}\nFecha usada: ${strategyLabel}.`;
+  return `Si, pago valido.\nNombre: ${input.customerName ?? 'sin nombre'}\nReferencia: ${input.reference ?? 'sin referencia'}\nMonto: ${formatCurrency(input.amount ?? 0, input.currency)}\nFecha usada: ${strategyLabel}.`;
 }
 
 export function buildBlockedReply(
@@ -452,7 +513,7 @@ export function buildBlockedReply(
   reasonCode: VerificationReasonCode,
   strategyLabel: string,
 ) {
-  return `No, pago bloqueado.\nReferencia: ${input.reference ?? 'sin referencia'}\nMonto: ${formatCurrency(input.amount ?? 0, input.currency)}\nFecha usada: ${strategyLabel}\nMotivo: ${translateVerificationReason(reasonCode)}.`;
+  return `No, pago bloqueado.\nNombre: ${input.customerName ?? 'sin nombre'}\nReferencia: ${input.reference ?? 'sin referencia'}\nMonto: ${formatCurrency(input.amount ?? 0, input.currency)}\nFecha usada: ${strategyLabel}\nMotivo: ${translateVerificationReason(reasonCode)}.`;
 }
 
 export function buildUnauthorizedPhoneReply() {
@@ -464,7 +525,7 @@ export function buildUnsupportedMediaReply() {
 }
 
 export function buildImageFallbackReply() {
-  return 'Recibi la imagen, pero no pude identificar un comprobante de pago. Enviame referencia y monto para continuar.';
+  return 'Recibi la imagen, pero no pude identificar un comprobante de pago. Enviame nombre y monto para continuar.';
 }
 
 export function buildTwimlResponse(message?: string | null) {

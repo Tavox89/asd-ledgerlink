@@ -51,18 +51,18 @@ describe('shared DTO validation', () => {
 
   it('accepts a manual verification payload and applies defaults', () => {
     const parsed = createManualVerificationSchema.parse({
-      referenciaEsperada: 'REF-9981',
       montoEsperado: '200',
       fechaOperacion: '2026-04-17T16:30:00.000Z',
     });
 
     expect(parsed.moneda).toBe('USD');
     expect(parsed.toleranciaMinutos).toBe(180);
+    expect(parsed.referenciaEsperada).toBeUndefined();
   });
 
   it('normalizes empty optional form fields to null', () => {
     const verification = createManualVerificationSchema.parse({
-      referenciaEsperada: 'REF-9981',
+      referenciaEsperada: '',
       montoEsperado: '200',
       fechaOperacion: '2026-04-17T16:30:00.000Z',
       bancoEsperado: '',
@@ -77,6 +77,7 @@ describe('shared DTO validation', () => {
       senderDomain: '',
     });
 
+    expect(verification.referenciaEsperada).toBeNull();
     expect(verification.bancoEsperado).toBeNull();
     expect(verification.cuentaDestinoUltimos4).toBeNull();
     expect(verification.nombreClienteOpcional).toBeNull();

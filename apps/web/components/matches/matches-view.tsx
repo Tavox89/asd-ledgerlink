@@ -65,7 +65,7 @@ export function MatchesView() {
                   <TR key={match.id}>
                     <TD>
                       <div className="font-semibold">
-                        {match.expectedTransfer?.referenceExpected ?? 'N/D'}
+                        {match.expectedTransfer?.referenceExpected || 'Sin referencia'}
                       </div>
                       <div className="text-muted-foreground">
                         {match.parsedNotification?.reference ?? 'Sin referencia parseada'}

@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 
 import { env } from '../../config/env';
 import type { CurrencyCode } from '@ledgerlink/shared';
+import { dayjs } from '../../lib/dayjs';
 
 import type { VisionExtractionResult } from './whatsapp.helpers';
 
@@ -56,8 +57,26 @@ async function downloadMedia(url: string) {
   };
 }
 
+function normalizeRelativeDate(value: string | null | undefined, referenceDate: Date) {
+  const normalized = value?.trim().toLowerCase() ?? '';
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized === 'today' || normalized === 'hoy') {
+    return dayjs(referenceDate).format('YYYY-MM-DD');
+  }
+
+  if (normalized === 'yesterday' || normalized === 'ayer') {
+    return dayjs(referenceDate).subtract(1, 'day').format('YYYY-MM-DD');
+  }
+
+  return value?.trim() || null;
+}
+
 export async function extractVerificationFromImage(
   imageUrl: string,
+  referenceDate: Date = new Date(),
 ): Promise<VisionExtractionResult | null> {
   if (!env.OPENAI_API_KEY) {
     return null;
@@ -86,7 +105,7 @@ export async function extractVerificationFromImage(
           {
             type: 'text',
             text:
-              'Responde con este JSON exacto: {"isTransferProof":boolean,"reference":string|null,"amount":number|null,"currency":"USD"|"VES"|"EUR"|"COP"|null,"date":"YYYY-MM-DD"|null,"time":"HH:mm"|null,"bank":string|null,"confidence":number}. Marca isTransferProof=true si la imagen parece contener evidencia razonable de transferencia o pago aunque este recortada, reenviada, comprimida o parcialmente visible. Si faltan campos, deja null solo en los que no se vean. Usa isTransferProof=false solo cuando claramente no parezca un comprobante o captura de pago.',
+              `Responde con este JSON exacto: {"isTransferProof":boolean,"reference":string|null,"customerName":string|null,"amount":number|null,"currency":"USD"|"VES"|"EUR"|"COP"|null,"date":"YYYY-MM-DD"|null,"time":"HH:mm"|null,"bank":string|null,"confidence":number}. Si la captura muestra un nombre del pago o destinatario, usa el nombre mas completo visible, por ejemplo el de "Enrolled as". Toma como fecha de referencia ${dayjs(referenceDate).format('YYYY-MM-DD')}. Si la captura dice Today/Hoy, usa esa fecha; si dice Yesterday/Ayer, usa el dia anterior. Marca isTransferProof=true si la imagen parece contener evidencia razonable de transferencia o pago aunque este recortada, reenviada, comprimida o parcialmente visible. Si faltan campos, deja null solo en los que no se vean. Usa isTransferProof=false solo cuando claramente no parezca un comprobante o captura de pago.`,
           },
           {
             type: 'image_url',
@@ -103,6 +122,7 @@ export async function extractVerificationFromImage(
   const parsed = parseJsonObject<{
     isTransferProof?: boolean;
     reference?: string | null;
+    customerName?: string | null;
     amount?: number | null;
     currency?: string | null;
     date?: string | null;
@@ -115,6 +135,7 @@ export async function extractVerificationFromImage(
     return {
       isTransferProof: false,
       reference: null,
+      customerName: null,
       amount: null,
       currency: null,
       date: null,
@@ -129,9 +150,10 @@ export async function extractVerificationFromImage(
   return {
     isTransferProof: Boolean(parsed.isTransferProof),
     reference: parsed.reference?.trim() || null,
+    customerName: parsed.customerName?.trim() || null,
     amount: typeof parsed.amount === 'number' ? parsed.amount : null,
     currency: normalizeCurrency(parsed.currency),
-    date: parsed.date?.trim() || null,
+    date: normalizeRelativeDate(parsed.date, referenceDate),
     time: parsed.time?.trim() || null,
     bank: parsed.bank?.trim() || null,
     confidence:

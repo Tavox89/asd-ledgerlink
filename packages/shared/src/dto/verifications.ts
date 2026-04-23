@@ -4,7 +4,7 @@ import { currencyValues } from '../constants/statuses';
 import { optionalNullableField } from './common';
 
 export const createManualVerificationSchema = z.object({
-  referenciaEsperada: z.string().trim().min(3).max(120),
+  referenciaEsperada: optionalNullableField(z.string().trim().min(3).max(120)),
   montoEsperado: z.coerce.number().positive(),
   moneda: z.enum(currencyValues).default('USD'),
   fechaOperacion: z.string().datetime(),

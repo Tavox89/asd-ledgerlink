@@ -71,7 +71,7 @@ function buildLookupTransfer(
       companyId: company.id,
       companySlug: company.slug,
       id: 'lookup',
-      referenceExpected: input.referenciaEsperada,
+      referenceExpected: input.referenciaEsperada ?? '',
       amountExpected: input.montoEsperado,
       currency: input.moneda,
       expectedBank: input.bancoEsperado?.trim() || 'Banco no especificado',
@@ -100,6 +100,7 @@ function buildExactAuthorizationSpecFromTransfer(
   return {
     companyId: transfer.companyId,
     referenceExpected: transfer.referenceExpected,
+    customerNameExpected: transfer.customerName,
     amountExpected: Number(transfer.amountExpected),
     currency: transfer.currency,
     expectedWindowFrom: transfer.expectedWindowFrom,
@@ -167,7 +168,7 @@ function buildLookupMatch(
 function buildLookupCandidate(input: CreateManualVerificationInput, lookup: ReturnType<typeof buildLookupTransfer>) {
   return {
     id: 'lookup',
-    referenceExpected: input.referenciaEsperada,
+    referenceExpected: input.referenciaEsperada ?? '',
     amountExpected: input.montoEsperado,
     currency: input.moneda,
     expectedBank: input.bancoEsperado?.trim() || 'Banco no especificado',
@@ -326,7 +327,7 @@ export async function createManualVerification(
 ) {
   const operationAt = dayjs(input.fechaOperacion);
   const transfer = await createTransfer(companySlug, {
-    referenciaEsperada: input.referenciaEsperada,
+    referenciaEsperada: input.referenciaEsperada ?? '',
     montoEsperado: input.montoEsperado,
     moneda: input.moneda,
     bancoEsperado: input.bancoEsperado?.trim() || 'Banco no especificado',
