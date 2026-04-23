@@ -53,6 +53,12 @@ channelsRouter.post('/channels/whatsapp/twilio/webhook', async (req, res) => {
     return res.status(403).type('text/plain').send('forbidden');
   }
 
-  const xml = await buildWebhookReplyXml(body);
-  return res.type('text/xml').send(xml || buildTwimlResponse());
+  // Acknowledge Twilio immediately and finish OCR/verification asynchronously.
+  // This keeps media-heavy requests from failing at the webhook layer before the
+  // outbound WhatsApp reply can be sent through the Twilio API.
+  queueMicrotask(() => {
+    void buildWebhookReplyXml(body);
+  });
+
+  return res.type('text/xml').send(buildTwimlResponse());
 });

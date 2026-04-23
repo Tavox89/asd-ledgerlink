@@ -45,12 +45,14 @@ describe('channels routes', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('text/xml');
-    expect(buildWebhookReplyXml).toHaveBeenCalledWith(
-      expect.objectContaining({
-        From: 'whatsapp:+584121112233',
-        Body: 'hola',
-      }),
-    );
+    await vi.waitFor(() => {
+      expect(buildWebhookReplyXml).toHaveBeenCalledWith(
+        expect.objectContaining({
+          From: 'whatsapp:+584121112233',
+          Body: 'hola',
+        }),
+      );
+    });
   });
 
   it('lists persisted WhatsApp attempts', async () => {
