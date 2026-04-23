@@ -3,6 +3,10 @@ import { z } from 'zod';
 import { optionalNullableField } from './common';
 
 const phoneSchema = z.string().trim().min(5).max(40);
+const messagingServiceSidSchema = z
+  .string()
+  .trim()
+  .regex(/^MG[0-9a-fA-F]{32}$/, 'Messaging Service SID must start with MG and contain 32 hexadecimal characters.');
 const allowedTestNumbersSchema = z.array(phoneSchema).max(50).default([]);
 
 export const createCompanyProfileSchema = z.object({
@@ -16,7 +20,7 @@ export const createCompanyProfileSchema = z.object({
   notes: optionalNullableField(z.string().trim().max(500)),
   isActive: z.boolean().default(true),
   whatsAppPhoneNumber: optionalNullableField(phoneSchema),
-  messagingServiceSid: optionalNullableField(z.string().trim().min(10).max(64)),
+  messagingServiceSid: optionalNullableField(messagingServiceSidSchema),
   allowedTestNumbers: allowedTestNumbersSchema.optional(),
   whatsAppChannelActive: z.boolean().default(true),
 });

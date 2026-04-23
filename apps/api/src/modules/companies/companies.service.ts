@@ -92,6 +92,11 @@ async function upsertWhatsAppChannel(
     'whatsAppPhoneNumber' | 'messagingServiceSid' | 'allowedTestNumbers' | 'whatsAppChannelActive'
   >,
 ) {
+  const normalizeMessagingServiceSid = (value?: string | null) => {
+    const trimmed = value?.trim() ?? '';
+    return /^MG[0-9a-fA-F]{32}$/.test(trimmed) ? trimmed : null;
+  };
+
   const existing = await prisma.whatsAppChannel.findUnique({
     where: {
       companyId,
@@ -103,7 +108,9 @@ async function upsertWhatsAppChannel(
       ? normalizeWhatsAppPhone(input.whatsAppPhoneNumber)
       : existing?.phoneNumber ?? null;
   const nextMessagingServiceSid =
-    input.messagingServiceSid !== undefined ? input.messagingServiceSid : existing?.messagingServiceSid ?? null;
+    input.messagingServiceSid !== undefined
+      ? normalizeMessagingServiceSid(input.messagingServiceSid)
+      : normalizeMessagingServiceSid(existing?.messagingServiceSid);
   const nextAllowed =
     input.allowedTestNumbers !== undefined
       ? parseAllowedTestNumbers(input.allowedTestNumbers.join(','))

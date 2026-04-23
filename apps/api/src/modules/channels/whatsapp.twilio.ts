@@ -4,6 +4,11 @@ import twilio from 'twilio';
 import { env } from '../../config/env';
 import { normalizeWhatsAppPhone } from './whatsapp.helpers';
 
+function normalizeMessagingServiceSid(value?: string | null) {
+  const trimmed = value?.trim() ?? '';
+  return /^MG[0-9a-fA-F]{32}$/.test(trimmed) ? trimmed : null;
+}
+
 function formatWhatsAppAddress(value?: string | null) {
   const normalized = normalizeWhatsAppPhone(value);
   return normalized ? `whatsapp:${normalized}` : null;
@@ -43,7 +48,10 @@ export async function sendTwilioWhatsAppReply(input: {
   const client = twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
   const to = formatWhatsAppAddress(input.toPhoneNumber);
   const from = formatWhatsAppAddress(input.channelPhoneNumber ?? env.TWILIO_WHATSAPP_FROM);
-  const messagingServiceSid = input.messagingServiceSid?.trim() || env.TWILIO_SERVICE_SID || null;
+  const messagingServiceSid =
+    normalizeMessagingServiceSid(input.messagingServiceSid) ||
+    normalizeMessagingServiceSid(env.TWILIO_SERVICE_SID) ||
+    null;
 
   if (!to) {
     throw new Error('twilio_reply_to_missing');
