@@ -139,13 +139,42 @@ function exactCustomerNameMatch(
   email: VerificationCandidateEmail,
   spec: ExactAuthorizationSpec,
 ) {
-  const parsedCustomerName = normalizeComparable(email.parsedNotification?.originatorName);
-  const expectedCustomerName = normalizeComparable(spec.customerNameExpected);
-  return (
-    Boolean(parsedCustomerName) &&
-    Boolean(expectedCustomerName) &&
-    parsedCustomerName === expectedCustomerName
-  );
+  const parsedSource = email.parsedNotification?.originatorName;
+  const expectedSource = spec.customerNameExpected;
+  const parsedCustomerName = normalizeComparable(parsedSource);
+  const expectedCustomerName = normalizeComparable(expectedSource);
+
+  if (!parsedCustomerName || !expectedCustomerName) {
+    return false;
+  }
+
+  if (parsedCustomerName === expectedCustomerName) {
+    return true;
+  }
+
+  const tokenizeComparableName = (value?: string | null) =>
+    (value ?? '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .split(/\s+/)
+      .filter((token) => token.length > 1);
+
+  const parsedTokens = [...new Set(tokenizeComparableName(parsedSource))];
+  const expectedTokens = [...new Set(tokenizeComparableName(expectedSource))];
+
+  if (parsedTokens.length < 2 || expectedTokens.length < 2) {
+    return false;
+  }
+
+  const [shorterTokens, longerTokens] =
+    parsedTokens.length <= expectedTokens.length
+      ? [parsedTokens, expectedTokens]
+      : [expectedTokens, parsedTokens];
+
+  return shorterTokens.every((token) => longerTokens.includes(token));
 }
 
 function exactAmountMatch(

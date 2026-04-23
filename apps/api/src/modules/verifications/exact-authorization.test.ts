@@ -145,6 +145,51 @@ describe('exact authorization evaluator', () => {
     expect(result.evidence?.originatorName).toBe('GUILLÉRMO DÍAZ ORTIZ');
   });
 
+  it('authorizes when the evidence name is a strong subset of the provided full name', () => {
+    const spec = buildExactAuthorizationSpec(
+      'company-default',
+      buildInput({
+        referenciaEsperada: null,
+        nombreClienteOpcional: 'GUILLERMO DIAZ ORTIZ',
+      }),
+    );
+
+    const result = evaluateExactAuthorization(spec, [
+      buildCandidate({
+        parsedNotification: {
+          reference: null,
+          originatorName: 'Guillermo Diaz',
+        },
+      }),
+    ]);
+
+    expect(result.authorized).toBe(true);
+    expect(result.reasonCode).toBe('authorized');
+    expect(result.evidence?.originatorName).toBe('Guillermo Diaz');
+  });
+
+  it('rejects partial single-token name overlaps to avoid weak matches', () => {
+    const spec = buildExactAuthorizationSpec(
+      'company-default',
+      buildInput({
+        referenciaEsperada: null,
+        nombreClienteOpcional: 'GUILLERMO DIAZ ORTIZ',
+      }),
+    );
+
+    const result = evaluateExactAuthorization(spec, [
+      buildCandidate({
+        parsedNotification: {
+          reference: null,
+          originatorName: 'Guillermo',
+        },
+      }),
+    ]);
+
+    expect(result.authorized).toBe(false);
+    expect(result.reasonCode).toBe('name');
+  });
+
   it('rejects when exact payment evidence falls outside the expected window', () => {
     const spec = buildExactAuthorizationSpec('company-default', buildInput());
 
