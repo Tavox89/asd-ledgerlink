@@ -59,7 +59,7 @@ export function normalizeDisplayText(value?: string | null) {
 }
 
 export function parseAmountString(rawValue: string) {
-  const cleaned = rawValue.replace(/[^\d,.-]/g, '');
+  const cleaned = rawValue.replace(/[^\d,.-]/g, '').replace(/[.,-]+$/g, '');
   if (!cleaned) {
     return null;
   }
@@ -157,6 +157,7 @@ export function extractDestinationLast4(text: string) {
 
 export function extractOriginatorName(text: string) {
   const patterns = [
+    /notification\s*-\s*([a-záéíóúñ ]{4,}?)\s+sent\s+you\s+\$/i,
     /(?:ordenante|originador|cliente|remitente|beneficiario)[:\s-]*([A-ZÁÉÍÓÚÑ ]{4,})/i,
     /(?:nombre)[:\s-]*([A-ZÁÉÍÓÚÑ ]{4,})/i,
   ];
