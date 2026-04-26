@@ -1,11 +1,11 @@
 import { z } from 'zod';
 
 import { currencyValues, evidenceStatusValues } from '../constants/statuses';
-import { optionalNullableField } from './common';
+import { localizedNumberField, optionalNullableField } from './common';
 
 export const createExpectedTransferSchema = z.object({
   referenciaEsperada: z.string().trim().min(3).max(120),
-  montoEsperado: z.coerce.number().positive(),
+  montoEsperado: localizedNumberField(z.number().positive()),
   moneda: z.enum(currencyValues),
   bancoEsperado: z.string().trim().min(2).max(120),
   fechaEsperadaDesde: z.string().datetime(),

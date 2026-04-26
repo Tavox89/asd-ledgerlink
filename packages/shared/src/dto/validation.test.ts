@@ -24,6 +24,19 @@ describe('shared DTO validation', () => {
     expect(parsed.referenciaEsperada).toBe('REF123456');
   });
 
+  it('accepts expected transfer amounts with comma decimals', () => {
+    const parsed = createExpectedTransferSchema.parse({
+      referenciaEsperada: 'REF123456',
+      montoEsperado: '59,24',
+      moneda: 'USD',
+      bancoEsperado: 'Banesco',
+      fechaEsperadaDesde: '2026-04-17T10:00:00.000Z',
+      fechaEsperadaHasta: '2026-04-17T11:00:00.000Z',
+    });
+
+    expect(parsed.montoEsperado).toBe(59.24);
+  });
+
   it('rejects invalid allowed sender payloads', () => {
     expect(() =>
       createAllowedBankSenderSchema.parse({
@@ -69,6 +82,15 @@ describe('shared DTO validation', () => {
     expect(parsed.moneda).toBe('USD');
     expect(parsed.toleranciaMinutos).toBe(180);
     expect(parsed.referenciaEsperada).toBeUndefined();
+  });
+
+  it('accepts a manual verification amount with comma decimals', () => {
+    const parsed = createManualVerificationSchema.parse({
+      montoEsperado: '59,24',
+      fechaOperacion: '2026-04-17T16:30:00.000Z',
+    });
+
+    expect(parsed.montoEsperado).toBe(59.24);
   });
 
   it('normalizes empty optional form fields to null', () => {

@@ -112,6 +112,32 @@ describe('verification routes', () => {
     });
   });
 
+  it('normalizes authorize amounts sent with comma decimals', async () => {
+    const { verificationsRouter } = await import('./verifications.routes');
+    const app = express();
+    app.use(express.json());
+    app.use(verificationsRouter);
+    app.use(errorHandler);
+
+    authorizeVerification.mockResolvedValue({
+      authorized: true,
+      reasonCode: 'authorized',
+      candidateCount: 1,
+      evidence: null,
+    });
+
+    const response = await request(app).post('/verifications/authorize').send({
+      ...validPayload,
+      montoEsperado: '59,24',
+    });
+
+    expect(response.status).toBe(200);
+    expect(authorizeVerification).toHaveBeenCalledWith('default', {
+      ...validPayload,
+      montoEsperado: 59.24,
+    });
+  });
+
   it('returns a clear non-authorizable decision when both reference and name are empty', async () => {
     const { verificationsRouter } = await import('./verifications.routes');
     const app = express();

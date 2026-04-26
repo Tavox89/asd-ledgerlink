@@ -5,10 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "pnpm prisma:generate && tsup src/server.ts --format esm --target node20 --out-dir dist",
+    "build": "pnpm --filter @ledgerlink/shared build && pnpm prisma:generate && tsup src/server.ts --format esm --target node20 --out-dir dist",
     "start": "node dist/server.js",
     "lint": "ESLINT_USE_FLAT_CONFIG=false eslint \"src/**/*.{ts,tsx}\" --max-warnings=0",
-    "test": "vitest run",
+    "test": "pnpm --filter @ledgerlink/shared build && vitest run",
     "prisma:generate": "node ./scripts/with-root-env.mjs prisma generate --schema ../../prisma/schema.prisma",
     "prisma:migrate": "node ./scripts/with-root-env.mjs prisma migrate dev --schema ../../prisma/schema.prisma",
     "prisma:seed": "node ./scripts/with-root-env.mjs tsx src/seed.ts",

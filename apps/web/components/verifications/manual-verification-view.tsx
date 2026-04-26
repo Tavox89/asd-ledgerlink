@@ -85,7 +85,7 @@ export function ManualVerificationView() {
 
       return api.post<VerificationRecord>(`/companies/${companySlug}/verifications/operator-lookup`, {
         referenciaEsperada: form.referenciaEsperada,
-        montoEsperado: Number(form.montoEsperado),
+        montoEsperado: form.montoEsperado,
         moneda: form.moneda,
         fechaOperacion: new Date(form.fechaOperacion).toISOString(),
         toleranciaMinutos: Number(form.toleranciaMinutos),
@@ -117,7 +117,7 @@ export function ManualVerificationView() {
 
       return api.post<VerificationRecord>(`/companies/${companySlug}/verifications/manual`, {
         referenciaEsperada: form.referenciaEsperada,
-        montoEsperado: Number(form.montoEsperado),
+        montoEsperado: form.montoEsperado,
         moneda: form.moneda,
         fechaOperacion: new Date(form.fechaOperacion).toISOString(),
         toleranciaMinutos: Number(form.toleranciaMinutos),

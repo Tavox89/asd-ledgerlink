@@ -32,7 +32,7 @@ export function NewTransferForm() {
     mutationFn: () =>
       api.post(`/companies/${companySlug}/transfers`, {
         ...form,
-        montoEsperado: Number(form.montoEsperado),
+        montoEsperado: form.montoEsperado,
         fechaEsperadaDesde: new Date(form.fechaEsperadaDesde).toISOString(),
         fechaEsperadaHasta: new Date(form.fechaEsperadaHasta).toISOString(),
       }),
