@@ -240,7 +240,7 @@ describe('exact authorization evaluator', () => {
     expect(result.reasonCode).toBe('name');
   });
 
-  it('rejects when identity and amount match but the evidence falls outside the expected window', () => {
+  it('authorizes when identity and amount match on the same business day even if the exact hour falls outside the window', () => {
     const spec = buildExactAuthorizationSpec(
       'company-default',
       buildInput({ nombreClienteOpcional: null }),
@@ -253,6 +253,58 @@ describe('exact authorization evaluator', () => {
         },
         internalDate: new Date('2026-04-17T12:05:00.000Z'),
         receivedAt: new Date('2026-04-17T12:05:30.000Z'),
+      }),
+    ]);
+
+    expect(result.authorized).toBe(true);
+    expect(result.reasonCode).toBe('authorized');
+    expect(result.candidateCount).toBe(1);
+    expect(result.riskFlags).toContain('authorized_via_same_day');
+  });
+
+  it('authorizes when the evidence and the requested verification share the same Caracas business day across a UTC date boundary', () => {
+    const spec = buildExactAuthorizationSpec(
+      'company-default',
+      buildInput({
+        referenciaEsperada: null,
+        fechaOperacion: '2026-04-25T03:54:00.000Z',
+        nombreClienteOpcional: 'GIUSEPPE ZACCARIA',
+        montoEsperado: 51.94,
+        moneda: 'USD',
+      }),
+    );
+
+    const result = evaluateExactAuthorization(spec, [
+      buildCandidate({
+        internalDate: new Date('2026-04-24T20:42:00.000Z'),
+        receivedAt: new Date('2026-04-24T20:42:10.000Z'),
+        parsedNotification: {
+          reference: null,
+          amount: new Prisma.Decimal(51.94),
+          currency: 'USD',
+          originatorName: 'GIUSEPPE ZACCARIA',
+        },
+      }),
+    ]);
+
+    expect(result.authorized).toBe(true);
+    expect(result.reasonCode).toBe('authorized');
+    expect(result.riskFlags).toContain('authorized_via_same_day');
+  });
+
+  it('rejects when identity and amount match but the evidence falls on a different business day', () => {
+    const spec = buildExactAuthorizationSpec(
+      'company-default',
+      buildInput({ nombreClienteOpcional: null }),
+    );
+
+    const result = evaluateExactAuthorization(spec, [
+      buildCandidate({
+        parsedNotification: {
+          transferAt: new Date('2026-04-18T12:05:00.000Z'),
+        },
+        internalDate: new Date('2026-04-18T12:05:00.000Z'),
+        receivedAt: new Date('2026-04-18T12:05:30.000Z'),
       }),
     ]);
 

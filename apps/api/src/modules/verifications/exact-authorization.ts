@@ -203,6 +203,25 @@ function withinExpectedWindow(
   );
 }
 
+function sameCalendarDay(
+  email: VerificationCandidateEmail,
+  window: VerificationLookupWindow,
+) {
+  const arrivalTimestamp = getArrivalTimestamp(email);
+  if (!arrivalTimestamp) {
+    return false;
+  }
+
+  // Until per-company timezones exist, keep calendar-day fallback aligned with
+  // the operating timezone used in Venezuela production flows.
+  const businessOffsetMinutes = -4 * 60;
+
+  return (
+    dayjs(arrivalTimestamp).utcOffset(businessOffsetMinutes).format('YYYY-MM-DD') ===
+    dayjs(window.operationAt).utcOffset(businessOffsetMinutes).format('YYYY-MM-DD')
+  );
+}
+
 function filterByAmountAndCurrency(
   candidates: VerificationCandidateEmail[],
   spec: ExactAuthorizationSpec,
@@ -215,6 +234,13 @@ function filterByExpectedWindow(
   spec: VerificationLookupWindow,
 ) {
   return candidates.filter((email) => withinExpectedWindow(email, spec));
+}
+
+function filterBySameCalendarDay(
+  candidates: VerificationCandidateEmail[],
+  spec: VerificationLookupWindow,
+) {
+  return candidates.filter((email) => sameCalendarDay(email, spec));
 }
 
 function chooseBestEvidence(
@@ -448,6 +474,8 @@ export function evaluateExactAuthorization(
   const primaryAmountCandidates = filterByAmountAndCurrency(primaryIdentityCandidates, spec);
   const strictExactCandidates = filterByExpectedWindow(strictAmountCandidates, spec);
   const primaryExactCandidates = filterByExpectedWindow(primaryAmountCandidates, spec);
+  const strictSameDayCandidates = filterBySameCalendarDay(strictAmountCandidates, spec);
+  const primarySameDayCandidates = filterBySameCalendarDay(primaryAmountCandidates, spec);
 
   let exactCandidates = primaryExactCandidates;
   const evaluationRiskFlags: string[] = [];
@@ -455,12 +483,21 @@ export function evaluateExactAuthorization(
   if (hasReference && hasName) {
     if (strictExactCandidates.length > 0) {
       exactCandidates = strictExactCandidates;
+    } else if (strictSameDayCandidates.length > 0) {
+      exactCandidates = strictSameDayCandidates;
+      evaluationRiskFlags.push('authorized_via_same_day');
     } else if (primaryExactCandidates.length > 0) {
       exactCandidates = primaryExactCandidates;
       evaluationRiskFlags.push('authorized_via_reference_only');
+    } else if (primarySameDayCandidates.length > 0) {
+      exactCandidates = primarySameDayCandidates;
+      evaluationRiskFlags.push('authorized_via_reference_only', 'authorized_via_same_day');
     } else {
       exactCandidates = [];
     }
+  } else if (primaryExactCandidates.length === 0 && primarySameDayCandidates.length > 0) {
+    exactCandidates = primarySameDayCandidates;
+    evaluationRiskFlags.push('authorized_via_same_day');
   }
 
   const authorized = exactCandidates.length > 0;
@@ -485,7 +522,9 @@ export function evaluateExactAuthorization(
       ? [
           exactCandidates,
           strictExactCandidates,
+          strictSameDayCandidates,
           primaryExactCandidates,
+          primarySameDayCandidates,
           strictAmountCandidates,
           primaryAmountCandidates,
           strictIdentityCandidates,
@@ -499,6 +538,7 @@ export function evaluateExactAuthorization(
       : hasReference
         ? [
             exactCandidates,
+            primarySameDayCandidates,
             primaryAmountCandidates,
             primaryIdentityCandidates,
             senderCandidates,
@@ -507,6 +547,7 @@ export function evaluateExactAuthorization(
           ]
         : [
             exactCandidates,
+            primarySameDayCandidates,
             primaryAmountCandidates,
             primaryIdentityCandidates,
             senderCandidates,
