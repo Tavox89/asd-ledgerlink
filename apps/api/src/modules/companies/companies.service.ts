@@ -16,7 +16,8 @@ export async function getCompanyBySlugOrThrow(companySlug: string) {
       slug: companySlug,
     },
     include: {
-      gmailAccount: {
+      gmailAccounts: {
+        orderBy: [{ connectedAt: 'asc' }, { email: 'asc' }],
         include: {
           token: true,
           watches: {
@@ -45,7 +46,8 @@ export async function getDefaultCompanyOrThrow() {
     },
     orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
     include: {
-      gmailAccount: {
+      gmailAccounts: {
+        orderBy: [{ connectedAt: 'asc' }, { email: 'asc' }],
         include: {
           token: true,
           watches: {
@@ -157,7 +159,8 @@ async function upsertWhatsAppChannel(
 export async function listCompanies() {
   const companies = await prisma.companyProfile.findMany({
     include: {
-      gmailAccount: {
+      gmailAccounts: {
+        orderBy: [{ connectedAt: 'asc' }, { email: 'asc' }],
         include: {
           token: true,
           watches: {

@@ -47,10 +47,12 @@ function serializeCompanyScope(
 
 export function serializeCompanyProfile(
   company: CompanyProfile & {
-    gmailAccount?: (GmailAccount & { token?: GmailToken | null; watches?: GmailWatch[] }) | null;
+    gmailAccounts?: Array<GmailAccount & { token?: GmailToken | null; watches?: GmailWatch[] }>;
     whatsAppChannel?: WhatsAppChannel | null;
   },
 ) {
+  const gmailAccounts = (company.gmailAccounts ?? []).map(serializeGmailAccount);
+
   return {
     id: company.id,
     slug: company.slug,
@@ -60,7 +62,8 @@ export function serializeCompanyProfile(
     notes: company.notes,
     createdAt: company.createdAt,
     updatedAt: company.updatedAt,
-    gmailAccount: company.gmailAccount ? serializeGmailAccount(company.gmailAccount) : null,
+    gmailAccounts,
+    gmailAccount: gmailAccounts[0] ?? null,
     whatsAppChannel: company.whatsAppChannel ? serializeWhatsAppChannel(company.whatsAppChannel) : null,
   };
 }
@@ -116,11 +119,14 @@ export function serializeInboundEmail(
     parsedNotification?: ParsedBankNotification | null;
     matches?: TransferMatch[];
     company?: CompanyProfile | null;
+    gmailAccount?: GmailAccount | null;
   },
 ) {
   return {
     ...serializeCompanyScope(email),
     id: email.id,
+    gmailAccountId: email.gmailAccountId,
+    gmailAccountEmail: email.gmailAccount?.email ?? null,
     gmailMessageId: email.gmailMessageId,
     gmailThreadId: email.gmailThreadId,
     historyId: email.historyId,

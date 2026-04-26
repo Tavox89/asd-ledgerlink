@@ -15,6 +15,7 @@ vi.mock('../gmail/gmail.service', () => ({
 describe('auth routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getGoogleAuthStartUrl.mockResolvedValue('https://accounts.google.com/o/oauth2/v2/auth');
   });
 
   it('redirects the callback to the public request origin when WEB_APP_URL is still localhost', async () => {
@@ -23,7 +24,7 @@ describe('auth routes', () => {
     app.use(authRouter);
     app.use(errorHandler);
 
-    handleGoogleOAuthCallback.mockResolvedValue(undefined);
+    handleGoogleOAuthCallback.mockResolvedValue({ companySlug: 'default', account: null });
 
     const response = await request(app)
       .get('/auth/google/callback?code=test-code&state=default')
@@ -43,11 +44,24 @@ describe('auth routes', () => {
     app.use(authRouter);
     app.use(errorHandler);
 
-    handleGoogleOAuthCallback.mockResolvedValue(undefined);
+    handleGoogleOAuthCallback.mockResolvedValue({ companySlug: 'default', account: null });
 
     const response = await request(app).get('/auth/google/callback?code=test-code&state=default');
 
     expect(response.status).toBe(302);
     expect(response.headers.location).toBe('http://localhost:3000/companies/default/settings/gmail?status=connected');
+  });
+
+  it('builds a reconnect OAuth URL for a specific Gmail account', async () => {
+    const { authRouter } = await import('./auth.routes');
+    const app = express();
+    app.use(authRouter);
+    app.use(errorHandler);
+
+    const response = await request(app).get('/companies/default/gmail/accounts/gmail-account-2/auth/google/start');
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toBe('https://accounts.google.com/o/oauth2/v2/auth');
+    expect(getGoogleAuthStartUrl).toHaveBeenCalledWith('default', 'gmail-account-2');
   });
 });

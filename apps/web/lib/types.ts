@@ -1,3 +1,41 @@
+export interface GmailWatchRecord {
+  id: string;
+  historyId: string;
+  topicName: string;
+  subscriptionName: string;
+  status: string;
+  expirationAt: string;
+  lastPulledAt?: string | null;
+  lastError?: string | null;
+}
+
+export interface GmailAccountRecord {
+  companyId?: string | null;
+  companySlug?: string | null;
+  id: string;
+  email: string;
+  googleAccountId?: string | null;
+  displayName?: string | null;
+  profileSnapshot?: {
+    profile?: {
+      emailAddress?: string;
+      messagesTotal?: number;
+      threadsTotal?: number;
+      historyId?: string;
+    };
+  } | null;
+  connectedAt: string;
+  lastSyncedAt?: string | null;
+  hasToken: boolean;
+  watch: GmailWatchRecord | null;
+  profile?: {
+    emailAddress?: string;
+    messagesTotal?: number;
+    threadsTotal?: number;
+    historyId?: string;
+  } | null;
+}
+
 export interface CompanyRecord {
   id: string;
   slug: string;
@@ -7,7 +45,8 @@ export interface CompanyRecord {
   notes?: string | null;
   createdAt?: string;
   updatedAt?: string;
-  gmailAccount?: GmailProfilePayload['account'] | null;
+  gmailAccounts: GmailAccountRecord[];
+  gmailAccount?: GmailAccountRecord | null;
   whatsAppChannel?: {
     id: string;
     phoneNumber: string;
@@ -41,17 +80,17 @@ export interface DashboardSummary {
   companyId?: string | null;
   companySlug?: string | null;
   gmailConnected: boolean;
-  gmailAccount: {
-    email: string;
-    displayName?: string | null;
-  } | null;
-  watchStatus:
-    | {
-        status: string;
-        expirationAt: string;
-        historyId: string;
-      }
-    | null;
+  connectedInboxCount: number;
+  gmailAccounts: GmailAccountRecord[];
+  gmailAccount: GmailAccountRecord | null;
+  watchStatus: GmailWatchRecord | null;
+  watchHealthSummary: {
+    total: number;
+    active: number;
+    pending: number;
+    error: number;
+    expired: number;
+  };
   counters: {
     processedEmails: number;
     pendingTransfers: number;
@@ -62,39 +101,57 @@ export interface DashboardSummary {
 }
 
 export interface GmailProfilePayload {
-  account: {
-    companyId?: string | null;
-    companySlug?: string | null;
-    id: string;
-    email: string;
-    googleAccountId?: string | null;
-    displayName?: string | null;
-    hasToken: boolean;
-    watch:
-      | {
-          id: string;
-          historyId: string;
-          status: string;
-          expirationAt: string;
-          lastPulledAt?: string | null;
-          lastError?: string | null;
-          topicName: string;
-          subscriptionName: string;
-        }
-      | null;
-  } | null;
+  accounts: GmailAccountRecord[];
+  account: GmailAccountRecord | null;
   profile?: {
     emailAddress?: string;
     messagesTotal?: number;
     threadsTotal?: number;
     historyId?: string;
+  } | null;
+  summary: {
+    connectedInboxCount: number;
+    totalMessages: number;
+    totalThreads: number;
+    watchHealthSummary: {
+      total: number;
+      active: number;
+      pending: number;
+      error: number;
+      expired: number;
+    };
   };
+}
+
+export interface GmailAccountOperationResult {
+  gmailAccountId: string;
+  email: string;
+  listed?: number;
+  processed?: number;
+  pulled?: number;
+  watch?: GmailWatchRecord | null;
+  error?: {
+    code: string;
+    message: string;
+  } | null;
+}
+
+export interface GmailBulkOperationResult {
+  totalAccounts: number;
+  succeeded: number;
+  failed: number;
+  listed?: number;
+  processed?: number;
+  pulled?: number;
+  results: GmailAccountOperationResult[];
 }
 
 export interface InboundEmailRecord {
   companyId?: string | null;
   companySlug?: string | null;
   id: string;
+  gmailAccountId: string;
+  gmailAccountEmail?: string | null;
   gmailMessageId: string;
   subject?: string | null;
   fromAddress?: string | null;

@@ -11,11 +11,11 @@ LedgerLink is split into a web client, an API service, and a shared package for 
 
 ## Core flows
 
-1. Gmail OAuth starts in the backend and stores tokens in PostgreSQL.
-2. Gmail watch registration stores the current `historyId` and expiration.
-3. A manual or scheduled Pub/Sub pull retrieves Gmail history updates from the configured subscription.
-4. New Gmail messages are fetched, normalized, persisted, sender-classified, and only then allowed into parsing/matching when they come from an exact allowlisted sender or an explicit allowlisted company domain.
-5. Operators review the evidence trail in the UI and move transfers through explicit evidence states.
+1. Gmail OAuth starts in the backend and stores one or more inbox tokens per company in PostgreSQL.
+2. Each connected inbox maintains its own Gmail watch, `historyId`, expiration, and sync state.
+3. A manual or scheduled Pub/Sub pull retrieves Gmail history updates from the configured subscription and routes them by `emailAddress` to the correct inbox context.
+4. New Gmail messages are fetched, normalized, persisted with both `companyId` and `gmailAccountId`, sender-classified, and only then allowed into parsing/matching when they come from an exact allowlisted sender or an explicit allowlisted company domain.
+5. Operators review the consolidated evidence trail in the UI and move transfers through explicit evidence states.
 
 ## Evidence model
 
@@ -80,7 +80,7 @@ The matching engine scores these signals:
 
 ## Architectural decisions
 
-- Company-scoped workspaces: each `CompanyProfile` owns one operational Gmail account and one active WhatsApp channel in this phase, and all evidence, sender rules, transfers, reviews, and audit trails stay isolated by `companyId`.
+- Company-scoped workspaces: each `CompanyProfile` can own multiple operational Gmail accounts and one active WhatsApp channel in this phase, and all evidence, sender rules, transfers, reviews, and audit trails stay isolated by `companyId`.
 - Evidence-first status model: the system never treats email presence as definitive settlement proof.
 - Parser registry: bank-specific parsers can be added without touching the ingestion pipeline.
 - Matching is deterministic and explainable: every score includes reasons and critical flags.

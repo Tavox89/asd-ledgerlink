@@ -555,7 +555,9 @@ export function CompaniesView() {
                       <div>
                         <p className="font-semibold">Gmail</p>
                         <p className="mt-1 text-muted-foreground">
-                          {company.gmailAccount?.email ?? 'Sin buzón conectado'}
+                          {company.gmailAccounts.length
+                            ? `${company.gmailAccounts.length} buzón(es): ${company.gmailAccounts.map((account) => account.email).join(', ')}`
+                            : 'Sin buzón conectado'}
                         </p>
                       </div>
                       <div>

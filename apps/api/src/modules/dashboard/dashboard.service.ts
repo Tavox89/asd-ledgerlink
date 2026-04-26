@@ -1,13 +1,14 @@
 import { prisma } from '../../lib/prisma';
 import { MatchStatus, ManualReviewStatus, TransferEvidenceStatus } from '../../lib/prisma-runtime';
-import { serializeAuditLog } from '../../lib/serializers';
+import { serializeAuditLog, serializeGmailAccount } from '../../lib/serializers';
 import { getCompanyBySlugOrThrow } from '../companies/companies.service';
+import { buildWatchHealthSummary } from '../gmail/gmail.service';
 
 export async function getDashboardSummary(companySlug: string) {
   const company = await getCompanyBySlugOrThrow(companySlug);
-  const [gmailAccount, emailCount, pendingTransfers, strongMatches, reviews, recentActivity] =
+  const [gmailAccounts, emailCount, pendingTransfers, strongMatches, reviews, recentActivity] =
     await Promise.all([
-      prisma.gmailAccount.findFirst({
+      prisma.gmailAccount.findMany({
         where: {
           companyId: company.id,
         },
@@ -19,6 +20,7 @@ export async function getDashboardSummary(companySlug: string) {
             take: 1,
           },
         },
+        orderBy: [{ connectedAt: 'asc' }, { email: 'asc' }],
       }),
       prisma.inboundEmail.count({
         where: {
@@ -60,23 +62,18 @@ export async function getDashboardSummary(companySlug: string) {
       }),
     ]);
 
+  const serializedAccounts = gmailAccounts.map(serializeGmailAccount);
+  const firstAccount = serializedAccounts[0] ?? null;
+
   return {
     companyId: company.id,
     companySlug: company.slug,
-    gmailConnected: Boolean(gmailAccount?.token),
-    gmailAccount: gmailAccount
-      ? {
-          email: gmailAccount.email,
-          displayName: gmailAccount.displayName,
-        }
-      : null,
-    watchStatus: gmailAccount?.watches[0]
-      ? {
-          status: gmailAccount.watches[0].status.toLowerCase(),
-          expirationAt: gmailAccount.watches[0].expirationAt,
-          historyId: gmailAccount.watches[0].historyId,
-        }
-      : null,
+    gmailConnected: serializedAccounts.some((account) => account.hasToken),
+    connectedInboxCount: serializedAccounts.filter((account) => account.hasToken).length,
+    gmailAccounts: serializedAccounts,
+    gmailAccount: firstAccount,
+    watchStatus: firstAccount?.watch ?? null,
+    watchHealthSummary: buildWatchHealthSummary(gmailAccounts),
     counters: {
       processedEmails: emailCount,
       pendingTransfers,

@@ -99,7 +99,7 @@ model CompanyProfile {
   createdAt                DateTime                     @default(now())
   updatedAt                DateTime                     @updatedAt
 
-  gmailAccount             GmailAccount?
+  gmailAccounts            GmailAccount[]
   inboundEmails            InboundEmail[]
   parsedBankNotifications  ParsedBankNotification[]
   expectedTransfers        ExpectedTransfer[]
@@ -153,7 +153,7 @@ model WhatsAppChannel {
 
 model GmailAccount {
   id              String         @id @default(cuid())
-  companyId       String         @unique
+  companyId       String
   email           String         @unique
   googleAccountId String?        @unique
   displayName     String?
@@ -167,6 +167,9 @@ model GmailAccount {
   token           GmailToken?
   watches         GmailWatch[]
   inboundEmails   InboundEmail[]
+
+  @@index([companyId, connectedAt(sort: Desc)])
+  @@index([companyId, email])
 }
 
 model GmailToken {

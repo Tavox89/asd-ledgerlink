@@ -1,6 +1,6 @@
 # LedgerLink by ASD Labs
 
-LedgerLink is a fintech reconciliation workspace that connects a Gmail inbox, ingests bank notification emails, evaluates basic authenticity evidence, extracts transfer signals, and matches them against expected transfers without overstating certainty.
+LedgerLink is a fintech reconciliation workspace that connects one or more Gmail inboxes per company, ingests bank notification emails, evaluates basic authenticity evidence, extracts transfer signals, and matches them against expected transfers without overstating certainty.
 
 Built by Tavox.
 
@@ -14,7 +14,7 @@ Built by Tavox.
 
 ## Company workspaces
 
-- Each `CompanyProfile` owns one operational Gmail inbox, one active WhatsApp channel, sender rules, expected transfers, matches, reviews, audit logs, and WhatsApp pilot traces.
+- Each `CompanyProfile` owns one or more operational Gmail inboxes, one active WhatsApp channel, sender rules, expected transfers, matches, reviews, audit logs, and WhatsApp pilot traces.
 - New workspace routes are company-scoped under `/companies/:companySlug/...`.
 - Legacy global workspace routes still exist as transition aliases and redirect to the `default` company locally.
 
@@ -75,9 +75,9 @@ pnpm dev
 
 1. Open `http://localhost:3000/companies`
 2. Create or edit a company profile, or keep using the migrated `default` workspace
-3. Open that workspace and connect Gmail from `/companies/<slug>/settings/gmail`
-4. Use Sync recent inbox from Settings to ingest the latest inbox messages without Pub/Sub
-5. Register Gmail watch
+3. Open that workspace and connect one or more Gmail inboxes from `/companies/<slug>/settings/gmail`
+4. Use the Gmail settings screen to sync all inboxes together or operate on one inbox at a time
+5. Register Gmail watch for all connected inboxes
 6. In development, the API also starts a background Pub/Sub pull worker by default
 7. Run manual Pub/Sub pull from Settings when you want to force an immediate refresh or:
 
@@ -109,9 +109,11 @@ Auth and Gmail:
 - `POST /companies/:companySlug/integration-tokens`
 - `POST /companies/:companySlug/integration-tokens/:id/revoke`
 - `GET /companies/:companySlug/auth/google/start`
+- `GET /companies/:companySlug/gmail/accounts/:id/auth/google/start`
 - `GET /companies/:companySlug/gmail/profile`
 - `GET /companies/:companySlug/gmail/messages`
 - `POST /companies/:companySlug/gmail/messages/sync`
+- `POST /companies/:companySlug/gmail/accounts/:id/messages/sync`
 - `GET /companies/:companySlug/gmail/messages/:id`
 - `GET /companies/:companySlug/verifications`
 - `POST /companies/:companySlug/verifications/operator-lookup`
@@ -122,7 +124,9 @@ Auth and Gmail:
 - `POST /companies/:companySlug/verifications/:id/confirm`
 - `POST /companies/:companySlug/verifications/:id/reject`
 - `POST /companies/:companySlug/gmail/watch/register`
+- `POST /companies/:companySlug/gmail/accounts/:id/watch/register`
 - `POST /companies/:companySlug/gmail/watch/renew`
+- `POST /companies/:companySlug/gmail/accounts/:id/watch/renew`
 - `POST /companies/:companySlug/gmail/pubsub/pull`
 - `POST /channels/whatsapp/twilio/webhook`
 - `GET /companies/:companySlug/channels/whatsapp/attempts`
@@ -157,6 +161,7 @@ Legacy aliases for Gmail, verifications, transfers, matches, reviews, audit, and
 ## Local automation behavior
 
 - In development, the API starts a background Gmail Pub/Sub pull worker when `GMAIL_PUBSUB_WORKER_INTERVAL_MS` is greater than `0`.
+- Company-level Gmail sync, watch register/renew, and manual Pub/Sub pull now operate across every connected inbox in that company and return per-inbox results.
 - `POST /companies/:companySlug/verifications/lookup` and `POST /companies/:companySlug/verifications/authorize` are now bearer-protected integration endpoints for external systems such as the ASD PayVerify Bridge.
 - `POST /companies/:companySlug/verifications/operator-lookup` keeps the internal operator UI flow working without a bearer token until operator auth exists.
 - Protected integration calls still do one automatic Pub/Sub pull and recheck when the first pass still has no exact candidate.

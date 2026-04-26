@@ -1,5 +1,5 @@
 import { Router, type Request } from 'express';
-import { companySlugParamSchema } from '@ledgerlink/shared';
+import { companySlugParamSchema, idParamSchema } from '@ledgerlink/shared';
 
 import { env } from '../../config/env';
 import { ApiError, asyncHandler, validateRequest } from '../../lib/http';
@@ -45,7 +45,7 @@ function resolvePostAuthWebOrigin(req: Request) {
 authRouter.get(
   '/auth/google/start',
   asyncHandler(async (_req, res) => {
-    res.redirect(getGoogleAuthStartUrl(DEFAULT_COMPANY_SLUG));
+    res.redirect(await getGoogleAuthStartUrl(DEFAULT_COMPANY_SLUG));
   }),
 );
 
@@ -53,7 +53,15 @@ authRouter.get(
   '/companies/:companySlug/auth/google/start',
   validateRequest({ params: companySlugParamSchema }),
   asyncHandler(async (req, res) => {
-    res.redirect(getGoogleAuthStartUrl(req.params.companySlug));
+    res.redirect(await getGoogleAuthStartUrl(req.params.companySlug));
+  }),
+);
+
+authRouter.get(
+  '/companies/:companySlug/gmail/accounts/:id/auth/google/start',
+  validateRequest({ params: companySlugParamSchema.merge(idParamSchema) }),
+  asyncHandler(async (req, res) => {
+    res.redirect(await getGoogleAuthStartUrl(req.params.companySlug, req.params.id));
   }),
 );
 
@@ -61,11 +69,11 @@ authRouter.get(
   '/auth/google/callback',
   asyncHandler(async (req, res) => {
     const code = String(req.query.code ?? '');
-    const companySlug = String(req.query.state ?? DEFAULT_COMPANY_SLUG);
     if (!code) {
       throw new ApiError(400, 'missing_google_code', 'Google OAuth callback did not include a code.');
     }
-    await handleGoogleOAuthCallback(code, companySlug);
+    const result = await handleGoogleOAuthCallback(code, typeof req.query.state === 'string' ? req.query.state : undefined);
+    const companySlug = result.companySlug;
     res.redirect(`${resolvePostAuthWebOrigin(req)}/companies/${companySlug}/settings/gmail?status=connected`);
   }),
 );

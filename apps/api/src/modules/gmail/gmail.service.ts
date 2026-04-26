@@ -20,6 +20,33 @@ type GmailAccountWithRelations = Prisma.GmailAccountGetPayload<{
   };
 }>;
 
+interface GmailOAuthState {
+  companySlug: string;
+  gmailAccountId?: string | null;
+}
+
+interface GmailProfileSnapshot {
+  emailAddress?: string;
+  messagesTotal?: number;
+  threadsTotal?: number;
+  historyId?: string;
+}
+
+interface GmailAccountOperationError {
+  code: string;
+  message: string;
+}
+
+interface GmailAccountOperationResult {
+  gmailAccountId: string;
+  email: string;
+  listed?: number;
+  processed?: number;
+  pulled?: number;
+  watch?: ReturnType<typeof serializeGmailAccount>['watch'];
+  error?: GmailAccountOperationError | null;
+}
+
 function gmailAccountInclude() {
   return {
     company: true,
@@ -31,6 +58,101 @@ function gmailAccountInclude() {
       take: 1,
     },
   };
+}
+
+const gmailAccountOrderBy = [{ connectedAt: 'asc' as const }, { email: 'asc' as const }];
+
+function normalizeOperationError(error: unknown): GmailAccountOperationError {
+  if (error instanceof ApiError) {
+    return {
+      code: error.code,
+      message: error.message,
+    };
+  }
+
+  return {
+    code: 'unexpected_error',
+    message: error instanceof Error ? error.message : 'Unexpected Gmail operation failure.',
+  };
+}
+
+function encodeGoogleOAuthState(state: GmailOAuthState) {
+  return Buffer.from(JSON.stringify(state), 'utf8').toString('base64url');
+}
+
+function parseGoogleOAuthState(rawState?: string | null): GmailOAuthState {
+  const fallbackCompanySlug = rawState?.trim() || 'default';
+  if (!rawState) {
+    return {
+      companySlug: 'default',
+      gmailAccountId: null,
+    };
+  }
+
+  try {
+    const decoded = JSON.parse(Buffer.from(rawState, 'base64url').toString('utf8')) as GmailOAuthState;
+    if (decoded?.companySlug) {
+      return {
+        companySlug: decoded.companySlug,
+        gmailAccountId: decoded.gmailAccountId ?? null,
+      };
+    }
+  } catch {
+    // Backward compatibility with the old plain-slug state.
+  }
+
+  return {
+    companySlug: fallbackCompanySlug,
+    gmailAccountId: null,
+  };
+}
+
+function readStoredProfileSnapshot(
+  account: Pick<GmailAccountWithRelations, 'profileSnapshot'>,
+): GmailProfileSnapshot | null {
+  const snapshot = (account.profileSnapshot as { profile?: GmailProfileSnapshot } | null | undefined)?.profile;
+  return snapshot
+    ? {
+        emailAddress: snapshot.emailAddress,
+        messagesTotal: snapshot.messagesTotal,
+        threadsTotal: snapshot.threadsTotal,
+        historyId: snapshot.historyId,
+      }
+    : null;
+}
+
+export function buildWatchHealthSummary(
+  accounts: Array<Pick<GmailAccountWithRelations, 'watches'>>,
+) {
+  return accounts.reduce(
+    (summary, account) => {
+      const status = account.watches?.[0]?.status;
+      summary.total += 1;
+
+      if (!status) {
+        summary.pending += 1;
+        return summary;
+      }
+
+      switch (status) {
+        case GmailWatchStatus.ACTIVE:
+          summary.active += 1;
+          break;
+        case GmailWatchStatus.ERROR:
+          summary.error += 1;
+          break;
+        case GmailWatchStatus.EXPIRED:
+          summary.expired += 1;
+          break;
+        default:
+          summary.pending += 1;
+          break;
+      }
+
+      return summary;
+    },
+    { total: 0, active: 0, pending: 0, error: 0, expired: 0 },
+  );
 }
 
 export function createOAuthClient() {
@@ -49,9 +171,48 @@ export function createOAuthClient() {
   );
 }
 
-async function getCompanyGmailAccountOrThrow(companySlug: string) {
+async function listCompanyGmailAccounts(companySlug: string) {
+  const company = await getCompanyBySlugOrThrow(companySlug);
+  const accounts = await prisma.gmailAccount.findMany({
+    where: {
+      companyId: company.id,
+    },
+    include: gmailAccountInclude(),
+    orderBy: gmailAccountOrderBy,
+  });
+
+  return {
+    company,
+    accounts,
+  };
+}
+
+async function getConnectedCompanyGmailAccountsOrThrow(companySlug: string) {
+  const { company, accounts } = await listCompanyGmailAccounts(companySlug);
+  const connectedAccounts = accounts.filter((account) => Boolean(account.token));
+
+  if (connectedAccounts.length === 0) {
+    throw new ApiError(
+      409,
+      'gmail_not_connected',
+      'Gmail account is not connected yet. Complete OAuth first.',
+    );
+  }
+
+  return {
+    company,
+    accounts: connectedAccounts,
+  };
+}
+
+async function getCompanyGmailAccountOrThrow(
+  companySlug: string,
+  gmailAccountId: string,
+  requireToken = true,
+) {
   const account = await prisma.gmailAccount.findFirst({
     where: {
+      id: gmailAccountId,
       company: {
         slug: companySlug,
       },
@@ -59,7 +220,11 @@ async function getCompanyGmailAccountOrThrow(companySlug: string) {
     include: gmailAccountInclude(),
   });
 
-  if (!account?.token) {
+  if (!account) {
+    throw new ApiError(404, 'gmail_account_not_found', 'Gmail inbox not found for that company.');
+  }
+
+  if (requireToken && !account.token) {
     throw new ApiError(
       409,
       'gmail_not_connected',
@@ -70,7 +235,7 @@ async function getCompanyGmailAccountOrThrow(companySlug: string) {
   return account;
 }
 
-async function getGmailAccountByEmailOrThrow(email: string) {
+async function getCompanyGmailAccountByEmailOrThrow(email: string) {
   const account = await prisma.gmailAccount.findUnique({
     where: {
       email,
@@ -121,195 +286,12 @@ async function buildAuthorizedGmailClient(account: GmailAccountWithRelations) {
   };
 }
 
-export async function getAuthorizedGmailClientForCompany(companySlug: string) {
-  const account = await getCompanyGmailAccountOrThrow(companySlug);
-  return buildAuthorizedGmailClient(account);
-}
-
-export async function getAuthorizedGmailClientForEmail(email: string) {
-  const account = await getGmailAccountByEmailOrThrow(email);
-  return buildAuthorizedGmailClient(account);
-}
-
-export function getGoogleAuthStartUrl(companySlug: string) {
-  const client = createOAuthClient();
-  return client.generateAuthUrl({
-    access_type: 'offline',
-    prompt: 'consent',
-    scope: ['https://www.googleapis.com/auth/gmail.readonly'],
-    include_granted_scopes: true,
-    state: companySlug,
-  });
-}
-
-export async function handleGoogleOAuthCallback(code: string, companySlug: string) {
-  const company = await getCompanyBySlugOrThrow(companySlug);
-  const client = createOAuthClient();
-  const { tokens } = await client.getToken(code);
-  client.setCredentials(tokens);
-
-  const gmail = google.gmail({ version: 'v1', auth: client });
-  const profileResponse = await gmail.users.getProfile({ userId: 'me' });
-
-  const email = profileResponse.data.emailAddress;
-  if (!email) {
-    throw new ApiError(502, 'google_profile_missing_email', 'Google did not return an email address.');
-  }
-
-  const existingByEmail = await prisma.gmailAccount.findUnique({
-    where: {
-      email,
-    },
-  });
-
-  if (existingByEmail && existingByEmail.companyId !== company.id) {
-    throw new ApiError(
-      409,
-      'gmail_account_already_linked',
-      'That Gmail inbox is already linked to another company profile.',
-    );
-  }
-
-  const account = await prisma.gmailAccount.upsert({
-    where: {
-      companyId: company.id,
-    },
-    create: {
-      companyId: company.id,
-      email,
-      googleAccountId: undefined,
-      displayName: undefined,
-      profileSnapshot: {
-        profile: profileResponse.data,
-      },
-      token: {
-        create: {
-          accessToken: tokens.access_token ?? '',
-          refreshToken: tokens.refresh_token ?? undefined,
-          scope: tokens.scope ?? '',
-          tokenType: tokens.token_type ?? undefined,
-          expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
-        },
-      },
-    },
-    update: {
-      email,
-      profileSnapshot: {
-        profile: profileResponse.data,
-      },
-      connectedAt: new Date(),
-      token: {
-        upsert: {
-          create: {
-            accessToken: tokens.access_token ?? '',
-            refreshToken: tokens.refresh_token ?? undefined,
-            scope: tokens.scope ?? '',
-            tokenType: tokens.token_type ?? undefined,
-            expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
-          },
-          update: {
-            accessToken: tokens.access_token ?? '',
-            refreshToken: tokens.refresh_token ?? undefined,
-            scope: tokens.scope ?? '',
-            tokenType: tokens.token_type ?? undefined,
-            expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
-          },
-        },
-      },
-    },
-    include: gmailAccountInclude(),
-  });
-
-  await writeAuditLog({
-    companyId: company.id,
-    actorType: 'SYSTEM',
-    action: 'gmail.connected',
-    entityType: 'GmailAccount',
-    entityId: account.id,
-    after: {
-      email: account.email,
-    },
-  });
-
-  return serializeGmailAccount(account);
-}
-
-export async function getGmailProfile(companySlug: string) {
-  const { account, gmail } = await getAuthorizedGmailClientForCompany(companySlug);
-  const profile = await gmail.users.getProfile({
-    userId: 'me',
-  });
-
-  await prisma.gmailAccount.update({
-    where: { id: account.id },
-    data: {
-      lastSyncedAt: new Date(),
-      profileSnapshot: {
-        profile: profile.data,
-      },
-    },
-  });
-
-  const refreshed = await prisma.gmailAccount.findUnique({
-    where: { id: account.id },
-    include: gmailAccountInclude(),
-  });
-
-  return {
-    account: refreshed ? serializeGmailAccount(refreshed) : null,
-    profile: profile.data,
-  };
-}
-
-export async function listStoredGmailMessages(
-  companySlug: string,
-  page = 1,
-  pageSize = 20,
-  processingStatus?: string,
+async function syncRecentInboxMessagesForAccount(
+  account: GmailAccountWithRelations,
+  maxMessages = 10,
+  query?: string,
 ) {
-  const company = await getCompanyBySlugOrThrow(companySlug);
-  const where = {
-    companyId: company.id,
-    processingStatus: processingStatus
-      ? (processingStatus.toUpperCase() as
-          | 'RECEIVED'
-          | 'PARSED'
-          | 'MATCHED'
-          | 'NEEDS_REVIEW'
-          | 'IGNORED'
-          | 'REJECTED')
-      : undefined,
-  };
-
-  const [items, total] = await Promise.all([
-    prisma.inboundEmail.findMany({
-      where,
-      include: {
-        company: true,
-        parsedNotification: true,
-        matches: true,
-      },
-      orderBy: {
-        receivedAt: 'desc',
-      },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-    prisma.inboundEmail.count({ where }),
-  ]);
-
-  return {
-    items: items.map(serializeInboundEmail),
-    pagination: {
-      page,
-      pageSize,
-      total,
-    },
-  };
-}
-
-export async function syncRecentInboxMessages(companySlug: string, maxMessages = 10, query?: string) {
-  const { account, gmail } = await getAuthorizedGmailClientForCompany(companySlug);
+  const { gmail } = await buildAuthorizedGmailClient(account);
   const response = await gmail.users.messages.list({
     userId: 'me',
     labelIds: ['INBOX'],
@@ -360,41 +342,16 @@ export async function syncRecentInboxMessages(companySlug: string, maxMessages =
   });
 
   return {
+    gmailAccountId: account.id,
+    email: account.email,
     listed: messageIds.length,
     processed: ingestedItems.length,
     messages: ingestedItems,
   };
 }
 
-export async function getStoredGmailMessageById(companySlug: string, id: string) {
-  const company = await getCompanyBySlugOrThrow(companySlug);
-  const item = await prisma.inboundEmail.findFirst({
-    where: {
-      id,
-      companyId: company.id,
-    },
-    include: {
-      company: true,
-      parsedNotification: true,
-      matches: true,
-      headers: true,
-      reviews: true,
-    },
-  });
-
-  if (!item) {
-    throw new ApiError(404, 'email_not_found', 'Inbound email not found.');
-  }
-
-  return {
-    ...serializeInboundEmail(item),
-    headers: item.headers,
-    reviews: item.reviews,
-  };
-}
-
-export async function registerGmailWatch(companySlug: string) {
-  const { account, gmail } = await getAuthorizedGmailClientForCompany(companySlug);
+async function registerGmailWatchForAccount(account: GmailAccountWithRelations) {
+  const { gmail } = await buildAuthorizedGmailClient(account);
   const response = await gmail.users.watch({
     userId: 'me',
     requestBody: {
@@ -428,11 +385,379 @@ export async function registerGmailWatch(companySlug: string) {
     },
   });
 
-  return watch;
+  return {
+    gmailAccountId: account.id,
+    email: account.email,
+    watch: {
+      id: watch.id,
+      historyId: watch.historyId,
+      topicName: watch.topicName,
+      subscriptionName: watch.subscriptionName,
+      status: watch.status.toLowerCase(),
+      expirationAt: watch.expirationAt,
+      lastPulledAt: watch.lastPulledAt,
+      lastError: watch.lastError,
+    },
+  };
+}
+
+export async function getAuthorizedGmailClientForCompany(companySlug: string) {
+  const { accounts } = await getConnectedCompanyGmailAccountsOrThrow(companySlug);
+  return buildAuthorizedGmailClient(accounts[0]);
+}
+
+export async function getAuthorizedGmailClientForCompanyAccount(
+  companySlug: string,
+  gmailAccountId: string,
+) {
+  const account = await getCompanyGmailAccountOrThrow(companySlug, gmailAccountId);
+  return buildAuthorizedGmailClient(account);
+}
+
+export async function getAuthorizedGmailClientForEmail(email: string) {
+  const account = await getCompanyGmailAccountByEmailOrThrow(email);
+  return buildAuthorizedGmailClient(account);
+}
+
+export async function getGoogleAuthStartUrl(companySlug: string, gmailAccountId?: string) {
+  await getCompanyBySlugOrThrow(companySlug);
+
+  if (gmailAccountId) {
+    await getCompanyGmailAccountOrThrow(companySlug, gmailAccountId, false);
+  }
+
+  const client = createOAuthClient();
+  return client.generateAuthUrl({
+    access_type: 'offline',
+    prompt: 'consent',
+    scope: ['https://www.googleapis.com/auth/gmail.readonly'],
+    include_granted_scopes: true,
+    state: encodeGoogleOAuthState({
+      companySlug,
+      gmailAccountId: gmailAccountId ?? null,
+    }),
+  });
+}
+
+export async function handleGoogleOAuthCallback(code: string, rawState?: string | null) {
+  const state = parseGoogleOAuthState(rawState);
+  const company = await getCompanyBySlugOrThrow(state.companySlug);
+  const client = createOAuthClient();
+  const { tokens } = await client.getToken(code);
+  client.setCredentials(tokens);
+
+  const gmail = google.gmail({ version: 'v1', auth: client });
+  const profileResponse = await gmail.users.getProfile({ userId: 'me' });
+
+  const email = profileResponse.data.emailAddress;
+  if (!email) {
+    throw new ApiError(502, 'google_profile_missing_email', 'Google did not return an email address.');
+  }
+
+  const existingByEmail = await prisma.gmailAccount.findUnique({
+    where: {
+      email,
+    },
+    include: gmailAccountInclude(),
+  });
+
+  if (existingByEmail && existingByEmail.companyId !== company.id) {
+    throw new ApiError(
+      409,
+      'gmail_account_already_linked',
+      'That Gmail inbox is already linked to another company profile.',
+    );
+  }
+
+  if (state.gmailAccountId) {
+    const reconnectAccount = await getCompanyGmailAccountOrThrow(company.slug, state.gmailAccountId, false);
+    if (existingByEmail && existingByEmail.id !== reconnectAccount.id) {
+      throw new ApiError(
+        409,
+        'gmail_account_reconnect_mismatch',
+        'That Gmail inbox is already connected to a different mailbox slot in this company.',
+      );
+    }
+  }
+
+  const targetAccountId = state.gmailAccountId ?? existingByEmail?.id ?? null;
+  const profileSnapshot = {
+    profile: profileResponse.data,
+  };
+
+  const account = targetAccountId
+    ? await prisma.gmailAccount.update({
+        where: {
+          id: targetAccountId,
+        },
+        data: {
+          email,
+          profileSnapshot,
+          connectedAt: new Date(),
+          token: {
+            upsert: {
+              create: {
+                accessToken: tokens.access_token ?? '',
+                refreshToken: tokens.refresh_token ?? undefined,
+                scope: tokens.scope ?? '',
+                tokenType: tokens.token_type ?? undefined,
+                expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
+              },
+              update: {
+                accessToken: tokens.access_token ?? '',
+                refreshToken: tokens.refresh_token ?? undefined,
+                scope: tokens.scope ?? '',
+                tokenType: tokens.token_type ?? undefined,
+                expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
+              },
+            },
+          },
+        },
+        include: gmailAccountInclude(),
+      })
+    : await prisma.gmailAccount.create({
+        data: {
+          companyId: company.id,
+          email,
+          googleAccountId: undefined,
+          displayName: undefined,
+          profileSnapshot,
+          token: {
+            create: {
+              accessToken: tokens.access_token ?? '',
+              refreshToken: tokens.refresh_token ?? undefined,
+              scope: tokens.scope ?? '',
+              tokenType: tokens.token_type ?? undefined,
+              expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
+            },
+          },
+        },
+        include: gmailAccountInclude(),
+      });
+
+  await writeAuditLog({
+    companyId: company.id,
+    actorType: 'SYSTEM',
+    action: 'gmail.connected',
+    entityType: 'GmailAccount',
+    entityId: account.id,
+    after: {
+      email: account.email,
+    },
+  });
+
+  return {
+    companySlug: company.slug,
+    account: serializeGmailAccount(account),
+  };
+}
+
+export async function getGmailProfile(companySlug: string) {
+  const { accounts } = await listCompanyGmailAccounts(companySlug);
+  const serializedAccounts = accounts.map((account) => ({
+    ...serializeGmailAccount(account),
+    profile: readStoredProfileSnapshot(account),
+  }));
+
+  const summary = {
+    connectedInboxCount: serializedAccounts.filter((account) => account.hasToken).length,
+    totalMessages: serializedAccounts.reduce((sum, account) => sum + (account.profile?.messagesTotal ?? 0), 0),
+    totalThreads: serializedAccounts.reduce((sum, account) => sum + (account.profile?.threadsTotal ?? 0), 0),
+    watchHealthSummary: buildWatchHealthSummary(accounts),
+  };
+
+  return {
+    accounts: serializedAccounts,
+    summary,
+    account: serializedAccounts[0] ?? null,
+    profile: serializedAccounts[0]?.profile ?? null,
+  };
+}
+
+export async function listStoredGmailMessages(
+  companySlug: string,
+  page = 1,
+  pageSize = 20,
+  processingStatus?: string,
+  gmailAccountId?: string,
+) {
+  const company = await getCompanyBySlugOrThrow(companySlug);
+  const where = {
+    companyId: company.id,
+    gmailAccountId: gmailAccountId ?? undefined,
+    processingStatus: processingStatus
+      ? (processingStatus.toUpperCase() as
+          | 'RECEIVED'
+          | 'PARSED'
+          | 'MATCHED'
+          | 'NEEDS_REVIEW'
+          | 'IGNORED'
+          | 'REJECTED')
+      : undefined,
+  };
+
+  const [items, total] = await Promise.all([
+    prisma.inboundEmail.findMany({
+      where,
+      include: {
+        company: true,
+        gmailAccount: true,
+        parsedNotification: true,
+        matches: true,
+      },
+      orderBy: {
+        receivedAt: 'desc',
+      },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.inboundEmail.count({ where }),
+  ]);
+
+  return {
+    items: items.map(serializeInboundEmail),
+    pagination: {
+      page,
+      pageSize,
+      total,
+    },
+  };
+}
+
+export async function syncRecentInboxMessages(
+  companySlug: string,
+  maxMessages = 10,
+  query?: string,
+) {
+  const { accounts } = await getConnectedCompanyGmailAccountsOrThrow(companySlug);
+  const results: GmailAccountOperationResult[] = [];
+  const messages = [];
+
+  for (const account of accounts) {
+    try {
+      const result = await syncRecentInboxMessagesForAccount(account, maxMessages, query);
+      results.push({
+        gmailAccountId: result.gmailAccountId,
+        email: result.email,
+        listed: result.listed,
+        processed: result.processed,
+        error: null,
+      });
+      messages.push(...result.messages);
+    } catch (error) {
+      results.push({
+        gmailAccountId: account.id,
+        email: account.email,
+        error: normalizeOperationError(error),
+      });
+    }
+  }
+
+  return {
+    totalAccounts: accounts.length,
+    succeeded: results.filter((result) => !result.error).length,
+    failed: results.filter((result) => result.error).length,
+    listed: results.reduce((sum, result) => sum + (result.listed ?? 0), 0),
+    processed: results.reduce((sum, result) => sum + (result.processed ?? 0), 0),
+    messages,
+    results,
+  };
+}
+
+export async function syncRecentInboxMessagesForCompanyAccount(
+  companySlug: string,
+  gmailAccountId: string,
+  maxMessages = 10,
+  query?: string,
+) {
+  const account = await getCompanyGmailAccountOrThrow(companySlug, gmailAccountId);
+  const result = await syncRecentInboxMessagesForAccount(account, maxMessages, query);
+
+  return {
+    gmailAccountId: result.gmailAccountId,
+    email: result.email,
+    listed: result.listed,
+    processed: result.processed,
+    error: null,
+  };
+}
+
+export async function getStoredGmailMessageById(companySlug: string, id: string) {
+  const company = await getCompanyBySlugOrThrow(companySlug);
+  const item = await prisma.inboundEmail.findFirst({
+    where: {
+      id,
+      companyId: company.id,
+    },
+    include: {
+      company: true,
+      gmailAccount: true,
+      parsedNotification: true,
+      matches: true,
+      headers: true,
+      reviews: true,
+    },
+  });
+
+  if (!item) {
+    throw new ApiError(404, 'email_not_found', 'Inbound email not found.');
+  }
+
+  return {
+    ...serializeInboundEmail(item),
+    headers: item.headers,
+    reviews: item.reviews,
+  };
+}
+
+export async function registerGmailWatch(companySlug: string) {
+  const { accounts } = await getConnectedCompanyGmailAccountsOrThrow(companySlug);
+  const results: GmailAccountOperationResult[] = [];
+
+  for (const account of accounts) {
+    try {
+      const result = await registerGmailWatchForAccount(account);
+      results.push({
+        gmailAccountId: result.gmailAccountId,
+        email: result.email,
+        watch: result.watch,
+        error: null,
+      });
+    } catch (error) {
+      results.push({
+        gmailAccountId: account.id,
+        email: account.email,
+        error: normalizeOperationError(error),
+      });
+    }
+  }
+
+  return {
+    totalAccounts: accounts.length,
+    succeeded: results.filter((result) => !result.error).length,
+    failed: results.filter((result) => result.error).length,
+    results,
+  };
+}
+
+export async function registerGmailWatchForCompanyAccount(companySlug: string, gmailAccountId: string) {
+  const account = await getCompanyGmailAccountOrThrow(companySlug, gmailAccountId);
+  const result = await registerGmailWatchForAccount(account);
+
+  return {
+    gmailAccountId: result.gmailAccountId,
+    email: result.email,
+    watch: result.watch,
+    error: null,
+  };
 }
 
 export async function renewGmailWatch(companySlug: string) {
   return registerGmailWatch(companySlug);
+}
+
+export async function renewGmailWatchForCompanyAccount(companySlug: string, gmailAccountId: string) {
+  return registerGmailWatchForCompanyAccount(companySlug, gmailAccountId);
 }
 
 export async function fetchMessageById(companySlug: string, gmailMessageId: string) {

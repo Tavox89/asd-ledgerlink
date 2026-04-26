@@ -37,6 +37,10 @@ export function EmailDetailView({ id }: { id: string }) {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="rounded-2xl border border-border/60 p-4 text-sm">
+                <p className="font-semibold">Buzón origen</p>
+                <p className="mt-2 text-muted-foreground">{email.gmailAccountEmail ?? 'Buzón desconocido'}</p>
+              </div>
               <div className="rounded-2xl border border-border/60 p-4 text-sm leading-7 text-muted-foreground">
                 {email.bodyText ?? 'No hay cuerpo de texto plano almacenado.'}
               </div>

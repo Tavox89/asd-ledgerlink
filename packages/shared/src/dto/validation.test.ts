@@ -4,6 +4,7 @@ import {
   createAllowedBankSenderSchema,
   createExpectedTransferSchema,
   createManualVerificationSchema,
+  gmailMessagesQuerySchema,
   gmailPullSchema,
   gmailSyncRecentSchema,
 } from './index';
@@ -47,6 +48,16 @@ describe('shared DTO validation', () => {
 
     expect(parsed.maxMessages).toBe(8);
     expect(parsed.query).toBe('from:gmail newer_than:1d');
+  });
+
+  it('accepts a Gmail message query filtered by buzón', () => {
+    const parsed = gmailMessagesQuerySchema.parse({
+      page: '2',
+      gmailAccountId: 'gmail-account-2',
+    });
+
+    expect(parsed.page).toBe(2);
+    expect(parsed.gmailAccountId).toBe('gmail-account-2');
   });
 
   it('accepts a manual verification payload and applies defaults', () => {

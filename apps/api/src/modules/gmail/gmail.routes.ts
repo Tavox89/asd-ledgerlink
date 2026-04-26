@@ -14,8 +14,11 @@ import {
   getStoredGmailMessageById,
   listStoredGmailMessages,
   registerGmailWatch,
+  registerGmailWatchForCompanyAccount,
   renewGmailWatch,
+  renewGmailWatchForCompanyAccount,
   syncRecentInboxMessages,
+  syncRecentInboxMessagesForCompanyAccount,
 } from './gmail.service';
 import { pullGmailPubSubMessages } from '../pubsub/pubsub.service';
 
@@ -47,6 +50,7 @@ gmailRouter.get(
         query.page,
         query.pageSize,
         query.processingStatus,
+        query.gmailAccountId,
       ),
     );
   }),
@@ -63,6 +67,7 @@ gmailRouter.get(
         query.page,
         query.pageSize,
         query.processingStatus,
+        query.gmailAccountId,
       ),
     );
   }),
@@ -82,6 +87,22 @@ gmailRouter.post(
   asyncHandler(async (req, res) => {
     const body = gmailSyncRecentSchema.parse(req.body ?? {});
     res.json(await syncRecentInboxMessages(req.params.companySlug, body.maxMessages, body.query));
+  }),
+);
+
+gmailRouter.post(
+  '/companies/:companySlug/gmail/accounts/:id/messages/sync',
+  validateRequest({ params: companySlugParamSchema.merge(idParamSchema) }),
+  asyncHandler(async (req, res) => {
+    const body = gmailSyncRecentSchema.parse(req.body ?? {});
+    res.json(
+      await syncRecentInboxMessagesForCompanyAccount(
+        req.params.companySlug,
+        req.params.id,
+        body.maxMessages,
+        body.query,
+      ),
+    );
   }),
 );
 
@@ -117,6 +138,14 @@ gmailRouter.post(
 );
 
 gmailRouter.post(
+  '/companies/:companySlug/gmail/accounts/:id/watch/register',
+  validateRequest({ params: companySlugParamSchema.merge(idParamSchema) }),
+  asyncHandler(async (req, res) => {
+    res.json(await registerGmailWatchForCompanyAccount(req.params.companySlug, req.params.id));
+  }),
+);
+
+gmailRouter.post(
   '/gmail/watch/renew',
   asyncHandler(async (_req, res) => {
     res.json(await renewGmailWatch(DEFAULT_COMPANY_SLUG));
@@ -128,6 +157,14 @@ gmailRouter.post(
   validateRequest({ params: companySlugParamSchema }),
   asyncHandler(async (req, res) => {
     res.json(await renewGmailWatch(req.params.companySlug));
+  }),
+);
+
+gmailRouter.post(
+  '/companies/:companySlug/gmail/accounts/:id/watch/renew',
+  validateRequest({ params: companySlugParamSchema.merge(idParamSchema) }),
+  asyncHandler(async (req, res) => {
+    res.json(await renewGmailWatchForCompanyAccount(req.params.companySlug, req.params.id));
   }),
 );
 

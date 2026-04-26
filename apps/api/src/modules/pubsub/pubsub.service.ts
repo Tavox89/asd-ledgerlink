@@ -76,6 +76,39 @@ async function buildWatchContext(emailAddress: string): Promise<CachedWatchConte
 export async function pullGmailPubSubMessages(companySlug?: string, maxMessages = 10) {
   const subscriber = new v1.SubscriberClient();
   let response;
+  let targetEmailAddresses: Set<string> | null = null;
+  const targetedAccountResults = new Map<string, { gmailAccountId: string; email: string; pulled: number; processed: number }>();
+
+  if (companySlug) {
+    const company = await getCompanyBySlugOrThrow(companySlug);
+    const accounts = await prisma.gmailAccount.findMany({
+      where: {
+        companyId: company.id,
+      },
+      select: {
+        id: true,
+        email: true,
+      },
+    });
+
+    if (accounts.length === 0) {
+      throw new ApiError(
+        409,
+        'gmail_not_connected',
+        'Gmail account is not connected yet. Complete OAuth first.',
+      );
+    }
+
+    targetEmailAddresses = new Set(accounts.map((account) => account.email));
+    for (const account of accounts) {
+      targetedAccountResults.set(account.id, {
+        gmailAccountId: account.id,
+        email: account.email,
+        pulled: 0,
+        processed: 0,
+      });
+    }
+  }
 
   try {
     [response] = await subscriber.pull({
@@ -92,30 +125,8 @@ export async function pullGmailPubSubMessages(companySlug?: string, maxMessages 
       pulled: 0,
       processed: 0,
       messages: [],
+      results: [...targetedAccountResults.values()],
     };
-  }
-
-  let targetEmailAddress: string | null = null;
-  if (companySlug) {
-    const company = await getCompanyBySlugOrThrow(companySlug);
-    const account = await prisma.gmailAccount.findFirst({
-      where: {
-        companyId: company.id,
-      },
-      select: {
-        email: true,
-      },
-    });
-
-    if (!account?.email) {
-      throw new ApiError(
-        409,
-        'gmail_not_connected',
-        'Gmail account is not connected yet. Complete OAuth first.',
-      );
-    }
-
-    targetEmailAddress = account.email;
   }
 
   const contextCache = new Map<string, CachedWatchContext | null>();
@@ -135,7 +146,7 @@ export async function pullGmailPubSubMessages(companySlug?: string, maxMessages 
       continue;
     }
 
-    if (targetEmailAddress && emailAddress !== targetEmailAddress) {
+    if (targetEmailAddresses && !targetEmailAddresses.has(emailAddress)) {
       continue;
     }
 
@@ -213,6 +224,12 @@ export async function pullGmailPubSubMessages(companySlug?: string, maxMessages 
       processed: (watchActivity.get(context.watchId)?.processed ?? 0) + newMessageIds.size,
     });
 
+    const targetedAccountResult = targetedAccountResults.get(context.accountId);
+    if (targetedAccountResult) {
+      targetedAccountResult.pulled += 1;
+      targetedAccountResult.processed += newMessageIds.size;
+    }
+
     if (ackId) {
       ackIds.push(ackId);
     }
@@ -229,7 +246,7 @@ export async function pullGmailPubSubMessages(companySlug?: string, maxMessages 
     {
       pulled: ackIds.length,
       ingested: ingestedItems.length,
-      targetEmailAddress,
+      targetEmailAddresses: targetEmailAddresses ? [...targetEmailAddresses] : null,
     },
     'Processed Gmail Pub/Sub pull batch',
   );
@@ -252,5 +269,6 @@ export async function pullGmailPubSubMessages(companySlug?: string, maxMessages 
     pulled: ackIds.length,
     processed: ingestedItems.length,
     messages: ingestedItems,
+    results: [...targetedAccountResults.values()],
   };
 }
