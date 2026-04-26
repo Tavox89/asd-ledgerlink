@@ -81,6 +81,9 @@ export function DashboardView() {
                         Activas {data.watchHealthSummary.active}
                       </span>
                       <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                        Inactivas {data.watchHealthSummary.inactive}
+                      </span>
+                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 dark:bg-slate-900 dark:text-slate-300">
                         Pendientes {data.watchHealthSummary.pending}
                       </span>
                       <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
@@ -107,6 +110,9 @@ export function DashboardView() {
                         <div>
                           <p className="text-sm text-muted-foreground">Buzón</p>
                           <p className="mt-1 font-semibold">{account.email}</p>
+                          <div className="mt-2">
+                            <StatusBadge status={account.isActive ? 'active' : 'inactive'} />
+                          </div>
                           <p className="mt-2 text-xs text-muted-foreground">
                             Último sync: {formatDateTime(account.lastSyncedAt)}
                           </p>
@@ -121,6 +127,11 @@ export function DashboardView() {
                                 : 'Sin suscripción'}
                             </span>
                           </div>
+                          {!account.isActive ? (
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              Pausado por operador.
+                            </p>
+                          ) : null}
                         </div>
                         <div>
                           <p className="text-sm text-muted-foreground">Historial</p>

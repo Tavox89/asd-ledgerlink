@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   companySlugParamSchema,
+  gmailAccountStatusSchema,
   gmailMessagesQuerySchema,
   gmailPullSchema,
   gmailSyncRecentSchema,
@@ -17,6 +18,7 @@ import {
   registerGmailWatchForCompanyAccount,
   renewGmailWatch,
   renewGmailWatchForCompanyAccount,
+  setCompanyGmailAccountActive,
   syncRecentInboxMessages,
   syncRecentInboxMessagesForCompanyAccount,
 } from './gmail.service';
@@ -165,6 +167,14 @@ gmailRouter.post(
   validateRequest({ params: companySlugParamSchema.merge(idParamSchema) }),
   asyncHandler(async (req, res) => {
     res.json(await renewGmailWatchForCompanyAccount(req.params.companySlug, req.params.id));
+  }),
+);
+
+gmailRouter.post(
+  '/companies/:companySlug/gmail/accounts/:id/status',
+  validateRequest({ params: companySlugParamSchema.merge(idParamSchema), body: gmailAccountStatusSchema }),
+  asyncHandler(async (req, res) => {
+    res.json(await setCompanyGmailAccountActive(req.params.companySlug, req.params.id, req.body.isActive));
   }),
 );
 

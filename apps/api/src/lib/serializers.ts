@@ -257,6 +257,7 @@ export function serializeGmailAccount(
     email: account.email,
     googleAccountId: account.googleAccountId,
     displayName: account.displayName,
+    isActive: account.isActive,
     profileSnapshot: account.profileSnapshot,
     connectedAt: account.connectedAt,
     lastSyncedAt: account.lastSyncedAt,

@@ -138,6 +138,22 @@ export function GmailSettingsView() {
     onError: (error) => toast.error(error.message),
   });
 
+  const toggleAccountMutation = useMutation({
+    mutationFn: ({ gmailAccountId, isActive }: { gmailAccountId: string; isActive: boolean }) =>
+      api.post(`/companies/${companySlug}/gmail/accounts/${gmailAccountId}/status`, {
+        isActive,
+      }),
+    onSuccess: async (_result, variables) => {
+      toast.success(
+        variables.isActive
+          ? 'Buzón reactivado. Vuelve a contar para evidencia nueva.'
+          : 'Buzón desactivado. Se conserva el histórico, pero deja de participar en nuevas lecturas y validaciones.',
+      );
+      await invalidateGmailQueries();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
   return (
     <AppShell
       title="Configuración de Gmail"
@@ -195,6 +211,9 @@ export function GmailSettingsView() {
                     Activas {profileQuery.data?.summary.watchHealthSummary.active ?? 0}
                   </span>
                   <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                    Inactivas {profileQuery.data?.summary.watchHealthSummary.inactive ?? 0}
+                  </span>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 dark:bg-slate-900 dark:text-slate-300">
                     Pendientes {profileQuery.data?.summary.watchHealthSummary.pending ?? 0}
                   </span>
                   <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
@@ -232,7 +251,7 @@ export function GmailSettingsView() {
             <CardHeader>
               <CardTitle>Buzones conectados</CardTitle>
               <CardDescription>
-                Cada cuenta mantiene su propio token, watch y ciclo de sincronización, pero la evidencia se consolida por empresa.
+                Cada cuenta mantiene su propio token, watch y ciclo de sincronización. Si desactivas un buzón, se conserva el histórico, pero deja de participar en nuevas lecturas y verificaciones.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -249,6 +268,9 @@ export function GmailSettingsView() {
                     <div>
                       <p className="text-sm text-muted-foreground">Correo</p>
                       <p className="mt-1 text-lg font-semibold">{account.email}</p>
+                      <div className="mt-2">
+                        <StatusBadge status={account.isActive ? 'active' : 'inactive'} />
+                      </div>
                       <p className="mt-2 text-xs text-muted-foreground">
                         Conectado: {formatDateTime(account.connectedAt)}
                       </p>
@@ -261,9 +283,9 @@ export function GmailSettingsView() {
                       <p className="text-sm text-muted-foreground">Perfil</p>
                       <p className="text-sm">Mensajes: {account.profile?.messagesTotal ?? 'N/D'}</p>
                       <p className="text-sm">Conversaciones: {account.profile?.threadsTotal ?? 'N/D'}</p>
-                      <div>
-                        <StatusBadge status={account.hasToken ? 'active' : 'error'} />
-                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Token: {account.hasToken ? 'activo' : 'sin conectar'}
+                      </p>
                     </div>
 
                     <div className="space-y-2">
@@ -279,6 +301,11 @@ export function GmailSettingsView() {
                       {account.watch?.lastError ? (
                         <p className="text-xs text-rose-600 dark:text-rose-300">{account.watch.lastError}</p>
                       ) : null}
+                      {!account.isActive ? (
+                        <p className="text-xs text-muted-foreground">
+                          Este buzón está pausado y no cuenta para nueva evidencia.
+                        </p>
+                      ) : null}
                     </div>
 
                     <div className="flex flex-wrap items-start justify-end gap-2">
@@ -293,7 +320,7 @@ export function GmailSettingsView() {
                       <Button
                         variant="secondary"
                         onClick={() => syncAccountMutation.mutate({ gmailAccountId: account.id })}
-                        disabled={syncAccountMutation.isPending}
+                        disabled={syncAccountMutation.isPending || !account.isActive}
                       >
                         Sincronizar
                       </Button>
@@ -304,9 +331,21 @@ export function GmailSettingsView() {
                             ? renewAccountMutation.mutate({ gmailAccountId: account.id })
                             : watchAccountMutation.mutate({ gmailAccountId: account.id })
                         }
-                        disabled={watchAccountMutation.isPending || renewAccountMutation.isPending}
+                        disabled={watchAccountMutation.isPending || renewAccountMutation.isPending || !account.isActive}
                       >
                         {account.watch ? 'Renovar suscripción' : 'Registrar suscripción'}
+                      </Button>
+                      <Button
+                        variant={account.isActive ? 'outline' : 'default'}
+                        onClick={() =>
+                          toggleAccountMutation.mutate({
+                            gmailAccountId: account.id,
+                            isActive: !account.isActive,
+                          })
+                        }
+                        disabled={toggleAccountMutation.isPending}
+                      >
+                        {account.isActive ? 'Desactivar buzón' : 'Activar buzón'}
                       </Button>
                     </div>
                   </div>

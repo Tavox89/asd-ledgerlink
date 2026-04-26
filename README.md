@@ -78,6 +78,7 @@ pnpm dev
 3. Open that workspace and connect one or more Gmail inboxes from `/companies/<slug>/settings/gmail`
 4. Use the Gmail settings screen to sync all inboxes together or operate on one inbox at a time
 5. Register Gmail watch for all connected inboxes
+6. If an inbox should stop feeding new evidence without losing its history, use `Desactivar buzón`. Inactive inboxes stay visible, but they stop participating in new sync/watch/pull cycles and future authorizations.
 6. In development, the API also starts a background Pub/Sub pull worker by default
 7. Run manual Pub/Sub pull from Settings when you want to force an immediate refresh or:
 

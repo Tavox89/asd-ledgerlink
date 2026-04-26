@@ -63,13 +63,17 @@ export async function getDashboardSummary(companySlug: string) {
     ]);
 
   const serializedAccounts = gmailAccounts.map(serializeGmailAccount);
-  const firstAccount = serializedAccounts[0] ?? null;
+  const firstAccount =
+    serializedAccounts.find((account) => account.isActive && account.hasToken) ??
+    serializedAccounts.find((account) => account.isActive) ??
+    serializedAccounts[0] ??
+    null;
 
   return {
     companyId: company.id,
     companySlug: company.slug,
-    gmailConnected: serializedAccounts.some((account) => account.hasToken),
-    connectedInboxCount: serializedAccounts.filter((account) => account.hasToken).length,
+    gmailConnected: serializedAccounts.some((account) => account.isActive && account.hasToken),
+    connectedInboxCount: serializedAccounts.filter((account) => account.isActive && account.hasToken).length,
     gmailAccounts: serializedAccounts,
     gmailAccount: firstAccount,
     watchStatus: firstAccount?.watch ?? null,

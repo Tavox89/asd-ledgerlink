@@ -157,6 +157,7 @@ model GmailAccount {
   email           String         @unique
   googleAccountId String?        @unique
   displayName     String?
+  isActive        Boolean        @default(true)
   profileSnapshot Json?
   connectedAt     DateTime       @default(now())
   lastSyncedAt    DateTime?
@@ -170,6 +171,7 @@ model GmailAccount {
 
   @@index([companyId, connectedAt(sort: Desc)])
   @@index([companyId, email])
+  @@index([companyId, isActive, connectedAt(sort: Desc)])
 }
 
 model GmailToken {

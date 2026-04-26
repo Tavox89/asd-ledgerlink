@@ -84,6 +84,7 @@ export async function pullGmailPubSubMessages(companySlug?: string, maxMessages 
     const accounts = await prisma.gmailAccount.findMany({
       where: {
         companyId: company.id,
+        isActive: true,
       },
       select: {
         id: true,
@@ -95,7 +96,7 @@ export async function pullGmailPubSubMessages(companySlug?: string, maxMessages 
       throw new ApiError(
         409,
         'gmail_not_connected',
-        'Gmail account is not connected yet. Complete OAuth first.',
+        'No active Gmail inboxes are connected for this company. Connect or reactivate a mailbox first.',
       );
     }
 

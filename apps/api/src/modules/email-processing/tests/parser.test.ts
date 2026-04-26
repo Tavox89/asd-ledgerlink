@@ -48,4 +48,28 @@ describe('bank notification parser registry', () => {
     expect(parsed.currency).toBe('USD');
     expect(parsed.originatorName).toBe('GUILLERMO DIAZ ORTIZ');
   });
+
+  it('extracts Amerant Zelle ReferenceID values without matching inside the label', () => {
+    const email: NormalizedInboundEmail = {
+      gmailMessageId: 'amerant-zelle-reference',
+      gmailThreadId: 'thread-zelle-reference',
+      historyId: '9002',
+      snippet: 'Notification - JOSE GELVEZ MADURO sent you $231.00.',
+      internalDate: new Date('2026-04-24T16:35:48.000Z'),
+      subject: 'Notification - JOSE GELVEZ MADURO sent you $231.00.',
+      fromAddress: 'donotreply@amerantbank.com',
+      toAddress: 'venezuelaonline2020@gmail.com',
+      replyToAddress: 'donotreply@amerantbank.com',
+      returnPathAddress: 'donotreply@amerantbank.com',
+      messageIdHeader: '<amerant-zelle-reference@amerantbank.com>',
+      bodyText: 'MemberID (73004580)\nAlertID (4452751248)\nReferenceID (760045800)',
+      bodyHtml: null,
+      headers: [],
+      headerMap: {},
+    };
+
+    const parsed = genericExtraction(email);
+
+    expect(parsed.reference).toBe('760045800');
+  });
 });

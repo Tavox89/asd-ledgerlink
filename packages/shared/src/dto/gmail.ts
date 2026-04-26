@@ -18,6 +18,11 @@ export const gmailSyncRecentSchema = z.object({
   query: z.string().trim().min(1).max(200).optional(),
 });
 
+export const gmailAccountStatusSchema = z.object({
+  isActive: z.boolean(),
+});
+
 export type GmailMessagesQuery = z.infer<typeof gmailMessagesQuerySchema>;
 export type GmailPullInput = z.infer<typeof gmailPullSchema>;
 export type GmailSyncRecentInput = z.infer<typeof gmailSyncRecentSchema>;
+export type GmailAccountStatusInput = z.infer<typeof gmailAccountStatusSchema>;

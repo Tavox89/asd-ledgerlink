@@ -124,9 +124,9 @@ export function extractAmountAndCurrency(text: string): {
 
 export function extractReference(text: string) {
   const patterns = [
-    /(?:referencia|ref\.?|nro\.?\s*de\s*referencia|n[úu]mero\s*de\s*referencia)[:#\s-]*([A-Z0-9-]{5,})/i,
-    /(?:operaci[oó]n|transacci[oó]n|confirmaci[oó]n)[:#\s-]*([A-Z0-9-]{5,})/i,
-    /c[oó]digo[:#\s-]*([A-Z0-9-]{5,})/i,
+    /(?:\breference\s*id\b|\breferenceid\b|\breferencia\b|\bref\.?(?=\s|[:#\-(])|nro\.?\s*de\s*referencia|n[úu]mero\s*de\s*referencia)[:#\s-]*\(?\s*([A-Z0-9-]{5,})\s*\)?/i,
+    /(?:operaci[oó]n|transacci[oó]n|confirmaci[oó]n)[:#\s-]*\(?\s*([A-Z0-9-]{5,})\s*\)?/i,
+    /c[oó]digo[:#\s-]*\(?\s*([A-Z0-9-]{5,})\s*\)?/i,
   ];
 
   for (const pattern of patterns) {

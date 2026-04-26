@@ -23,6 +23,7 @@ export interface ExactAuthorizationSpec extends VerificationLookupWindow {
 export type VerificationCandidateEmail = Prisma.InboundEmailGetPayload<{
   include: {
     company: true;
+    gmailAccount: true;
     parsedNotification: true;
     matches: true;
   };
@@ -398,10 +399,16 @@ export async function loadVerificationCandidateEmails(
   const candidateEmails = await prisma.inboundEmail.findMany({
     where: {
       companyId: spec.companyId,
+      gmailAccount: {
+        is: {
+          isActive: true,
+        },
+      },
       OR: candidateFilters,
     },
     include: {
       company: true,
+      gmailAccount: true,
       parsedNotification: true,
       matches: true,
     },
@@ -472,10 +479,14 @@ export function evaluateExactAuthorization(
   const primaryIdentityCandidates = hasReference ? referenceCandidates : nameCandidates;
   const strictAmountCandidates = filterByAmountAndCurrency(strictIdentityCandidates, spec);
   const primaryAmountCandidates = filterByAmountAndCurrency(primaryIdentityCandidates, spec);
+  const secondaryIdentityCandidates = hasReference && hasName ? nameCandidates : [];
+  const secondaryAmountCandidates = filterByAmountAndCurrency(secondaryIdentityCandidates, spec);
   const strictExactCandidates = filterByExpectedWindow(strictAmountCandidates, spec);
   const primaryExactCandidates = filterByExpectedWindow(primaryAmountCandidates, spec);
+  const secondaryExactCandidates = filterByExpectedWindow(secondaryAmountCandidates, spec);
   const strictSameDayCandidates = filterBySameCalendarDay(strictAmountCandidates, spec);
   const primarySameDayCandidates = filterBySameCalendarDay(primaryAmountCandidates, spec);
+  const secondarySameDayCandidates = filterBySameCalendarDay(secondaryAmountCandidates, spec);
 
   let exactCandidates = primaryExactCandidates;
   const evaluationRiskFlags: string[] = [];
@@ -492,6 +503,12 @@ export function evaluateExactAuthorization(
     } else if (primarySameDayCandidates.length > 0) {
       exactCandidates = primarySameDayCandidates;
       evaluationRiskFlags.push('authorized_via_reference_only', 'authorized_via_same_day');
+    } else if (secondaryExactCandidates.length > 0) {
+      exactCandidates = secondaryExactCandidates;
+      evaluationRiskFlags.push('authorized_via_name_only');
+    } else if (secondarySameDayCandidates.length > 0) {
+      exactCandidates = secondarySameDayCandidates;
+      evaluationRiskFlags.push('authorized_via_name_only', 'authorized_via_same_day');
     } else {
       exactCandidates = [];
     }
@@ -505,6 +522,12 @@ export function evaluateExactAuthorization(
     ? 'authorized'
     : senderCandidates.length === 0
       ? 'sender'
+      : hasReference && hasName
+        ? referenceCandidates.length === 0 && nameCandidates.length === 0
+          ? 'reference'
+          : primaryAmountCandidates.length === 0 && secondaryAmountCandidates.length === 0
+            ? 'amount'
+            : 'date'
       : hasReference
         ? referenceCandidates.length === 0
           ? 'reference'
@@ -525,10 +548,14 @@ export function evaluateExactAuthorization(
           strictSameDayCandidates,
           primaryExactCandidates,
           primarySameDayCandidates,
+          secondaryExactCandidates,
+          secondarySameDayCandidates,
           strictAmountCandidates,
           primaryAmountCandidates,
+          secondaryAmountCandidates,
           strictIdentityCandidates,
           primaryIdentityCandidates,
+          secondaryIdentityCandidates,
           nameCandidates,
           senderCandidates,
           looseReferenceCandidates,

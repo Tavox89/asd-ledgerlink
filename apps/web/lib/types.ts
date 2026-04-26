@@ -16,6 +16,7 @@ export interface GmailAccountRecord {
   email: string;
   googleAccountId?: string | null;
   displayName?: string | null;
+  isActive: boolean;
   profileSnapshot?: {
     profile?: {
       emailAddress?: string;
@@ -87,6 +88,7 @@ export interface DashboardSummary {
   watchHealthSummary: {
     total: number;
     active: number;
+    inactive: number;
     pending: number;
     error: number;
     expired: number;
@@ -116,6 +118,7 @@ export interface GmailProfilePayload {
     watchHealthSummary: {
       total: number;
       active: number;
+      inactive: number;
       pending: number;
       error: number;
       expired: number;

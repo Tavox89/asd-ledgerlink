@@ -32,6 +32,11 @@ interface GmailProfileSnapshot {
   historyId?: string;
 }
 
+interface GmailAccountQueryOptions {
+  requireToken?: boolean;
+  requireActive?: boolean;
+}
+
 interface GmailAccountOperationError {
   code: string;
   message: string;
@@ -122,12 +127,18 @@ function readStoredProfileSnapshot(
 }
 
 export function buildWatchHealthSummary(
-  accounts: Array<Pick<GmailAccountWithRelations, 'watches'>>,
+  accounts: Array<Pick<GmailAccountWithRelations, 'watches' | 'isActive'>>,
 ) {
   return accounts.reduce(
     (summary, account) => {
-      const status = account.watches?.[0]?.status;
       summary.total += 1;
+
+      if (!account.isActive) {
+        summary.inactive += 1;
+        return summary;
+      }
+
+      const status = account.watches?.[0]?.status;
 
       if (!status) {
         summary.pending += 1;
@@ -151,7 +162,7 @@ export function buildWatchHealthSummary(
 
       return summary;
     },
-    { total: 0, active: 0, pending: 0, error: 0, expired: 0 },
+    { total: 0, active: 0, inactive: 0, pending: 0, error: 0, expired: 0 },
   );
 }
 
@@ -189,13 +200,13 @@ async function listCompanyGmailAccounts(companySlug: string) {
 
 async function getConnectedCompanyGmailAccountsOrThrow(companySlug: string) {
   const { company, accounts } = await listCompanyGmailAccounts(companySlug);
-  const connectedAccounts = accounts.filter((account) => Boolean(account.token));
+  const connectedAccounts = accounts.filter((account) => account.isActive && Boolean(account.token));
 
   if (connectedAccounts.length === 0) {
     throw new ApiError(
       409,
       'gmail_not_connected',
-      'Gmail account is not connected yet. Complete OAuth first.',
+      'No active Gmail inboxes are connected for this company. Connect or reactivate a mailbox first.',
     );
   }
 
@@ -208,8 +219,9 @@ async function getConnectedCompanyGmailAccountsOrThrow(companySlug: string) {
 async function getCompanyGmailAccountOrThrow(
   companySlug: string,
   gmailAccountId: string,
-  requireToken = true,
+  options: GmailAccountQueryOptions = {},
 ) {
+  const { requireToken = true, requireActive = false } = options;
   const account = await prisma.gmailAccount.findFirst({
     where: {
       id: gmailAccountId,
@@ -232,10 +244,22 @@ async function getCompanyGmailAccountOrThrow(
     );
   }
 
+  if (requireActive && !account.isActive) {
+    throw new ApiError(
+      409,
+      'gmail_account_inactive',
+      'That Gmail inbox is inactive. Reactivate it before running sync or watch actions.',
+    );
+  }
+
   return account;
 }
 
-async function getCompanyGmailAccountByEmailOrThrow(email: string) {
+async function getCompanyGmailAccountByEmailOrThrow(
+  email: string,
+  options: GmailAccountQueryOptions = {},
+) {
+  const { requireToken = true, requireActive = false } = options;
   const account = await prisma.gmailAccount.findUnique({
     where: {
       email,
@@ -243,11 +267,27 @@ async function getCompanyGmailAccountByEmailOrThrow(email: string) {
     include: gmailAccountInclude(),
   });
 
-  if (!account?.token) {
+  if (!account) {
     throw new ApiError(
       409,
       'gmail_not_connected',
       'Gmail account is not connected yet. Complete OAuth first.',
+    );
+  }
+
+  if (requireToken && !account.token) {
+    throw new ApiError(
+      409,
+      'gmail_not_connected',
+      'Gmail account is not connected yet. Complete OAuth first.',
+    );
+  }
+
+  if (requireActive && !account.isActive) {
+    throw new ApiError(
+      409,
+      'gmail_account_inactive',
+      'That Gmail inbox is inactive. Reactivate it before processing new evidence from it.',
     );
   }
 
@@ -410,12 +450,18 @@ export async function getAuthorizedGmailClientForCompanyAccount(
   companySlug: string,
   gmailAccountId: string,
 ) {
-  const account = await getCompanyGmailAccountOrThrow(companySlug, gmailAccountId);
+  const account = await getCompanyGmailAccountOrThrow(companySlug, gmailAccountId, {
+    requireToken: true,
+    requireActive: true,
+  });
   return buildAuthorizedGmailClient(account);
 }
 
 export async function getAuthorizedGmailClientForEmail(email: string) {
-  const account = await getCompanyGmailAccountByEmailOrThrow(email);
+  const account = await getCompanyGmailAccountByEmailOrThrow(email, {
+    requireToken: true,
+    requireActive: true,
+  });
   return buildAuthorizedGmailClient(account);
 }
 
@@ -423,7 +469,10 @@ export async function getGoogleAuthStartUrl(companySlug: string, gmailAccountId?
   await getCompanyBySlugOrThrow(companySlug);
 
   if (gmailAccountId) {
-    await getCompanyGmailAccountOrThrow(companySlug, gmailAccountId, false);
+    await getCompanyGmailAccountOrThrow(companySlug, gmailAccountId, {
+      requireToken: false,
+      requireActive: false,
+    });
   }
 
   const client = createOAuthClient();
@@ -470,7 +519,10 @@ export async function handleGoogleOAuthCallback(code: string, rawState?: string 
   }
 
   if (state.gmailAccountId) {
-    const reconnectAccount = await getCompanyGmailAccountOrThrow(company.slug, state.gmailAccountId, false);
+    const reconnectAccount = await getCompanyGmailAccountOrThrow(company.slug, state.gmailAccountId, {
+      requireToken: false,
+      requireActive: false,
+    });
     if (existingByEmail && existingByEmail.id !== reconnectAccount.id) {
       throw new ApiError(
         409,
@@ -560,18 +612,60 @@ export async function getGmailProfile(companySlug: string) {
   }));
 
   const summary = {
-    connectedInboxCount: serializedAccounts.filter((account) => account.hasToken).length,
+    connectedInboxCount: serializedAccounts.filter((account) => account.isActive && account.hasToken).length,
     totalMessages: serializedAccounts.reduce((sum, account) => sum + (account.profile?.messagesTotal ?? 0), 0),
     totalThreads: serializedAccounts.reduce((sum, account) => sum + (account.profile?.threadsTotal ?? 0), 0),
     watchHealthSummary: buildWatchHealthSummary(accounts),
   };
+  const preferredAccount =
+    serializedAccounts.find((account) => account.isActive && account.hasToken) ??
+    serializedAccounts.find((account) => account.isActive) ??
+    serializedAccounts[0] ??
+    null;
 
   return {
     accounts: serializedAccounts,
     summary,
-    account: serializedAccounts[0] ?? null,
-    profile: serializedAccounts[0]?.profile ?? null,
+    account: preferredAccount,
+    profile: preferredAccount?.profile ?? null,
   };
+}
+
+export async function setCompanyGmailAccountActive(
+  companySlug: string,
+  gmailAccountId: string,
+  isActive: boolean,
+) {
+  const account = await getCompanyGmailAccountOrThrow(companySlug, gmailAccountId, {
+    requireToken: false,
+    requireActive: false,
+  });
+
+  const updated = await prisma.gmailAccount.update({
+    where: {
+      id: account.id,
+    },
+    data: {
+      isActive,
+    },
+    include: gmailAccountInclude(),
+  });
+
+  await writeAuditLog({
+    companyId: account.companyId,
+    actorType: 'USER',
+    action: isActive ? 'gmail.reactivated' : 'gmail.deactivated',
+    entityType: 'GmailAccount',
+    entityId: account.id,
+    before: {
+      isActive: account.isActive,
+    },
+    after: {
+      isActive: updated.isActive,
+    },
+  });
+
+  return serializeGmailAccount(updated);
 }
 
 export async function listStoredGmailMessages(
@@ -670,7 +764,10 @@ export async function syncRecentInboxMessagesForCompanyAccount(
   maxMessages = 10,
   query?: string,
 ) {
-  const account = await getCompanyGmailAccountOrThrow(companySlug, gmailAccountId);
+  const account = await getCompanyGmailAccountOrThrow(companySlug, gmailAccountId, {
+    requireToken: true,
+    requireActive: true,
+  });
   const result = await syncRecentInboxMessagesForAccount(account, maxMessages, query);
 
   return {
@@ -741,7 +838,10 @@ export async function registerGmailWatch(companySlug: string) {
 }
 
 export async function registerGmailWatchForCompanyAccount(companySlug: string, gmailAccountId: string) {
-  const account = await getCompanyGmailAccountOrThrow(companySlug, gmailAccountId);
+  const account = await getCompanyGmailAccountOrThrow(companySlug, gmailAccountId, {
+    requireToken: true,
+    requireActive: true,
+  });
   const result = await registerGmailWatchForAccount(account);
 
   return {

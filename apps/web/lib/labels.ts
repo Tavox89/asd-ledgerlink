@@ -55,6 +55,8 @@ const LABELS: Record<string, string> = {
   transfer_rejected: 'transferencia rechazada',
   gmail_connected: 'Gmail conectado',
   gmail_manual_sync: 'sincronización manual de Gmail',
+  gmail_deactivated: 'buzón de Gmail desactivado',
+  gmail_reactivated: 'buzón de Gmail reactivado',
   gmail_watch_registered: 'watch de Gmail registrado',
   gmail_pubsub_pull: 'lectura de Pub/Sub de Gmail',
   match_generated: 'coincidencia generada',

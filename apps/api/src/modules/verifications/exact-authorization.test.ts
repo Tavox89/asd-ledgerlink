@@ -359,7 +359,7 @@ describe('exact authorization evaluator', () => {
     expect(result.evidence?.senderMatchType).toBe('none');
   });
 
-  it('rejects by reference when both identifiers are provided but the reference does not exist', () => {
+  it('authorizes by name when both identifiers are provided but the reference does not exist', () => {
     const spec = buildExactAuthorizationSpec(
       'company-default',
       buildInput({
@@ -370,8 +370,9 @@ describe('exact authorization evaluator', () => {
 
     const result = evaluateExactAuthorization(spec, [buildCandidate()]);
 
-    expect(result.authorized).toBe(false);
-    expect(result.reasonCode).toBe('reference');
+    expect(result.authorized).toBe(true);
+    expect(result.reasonCode).toBe('authorized');
+    expect(result.riskFlags).toContain('authorized_via_name_only');
   });
 
   it('rejects when the sender is allowlisted but the normalized payment name does not match in name-only mode', () => {
