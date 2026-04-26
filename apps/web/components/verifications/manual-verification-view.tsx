@@ -25,6 +25,12 @@ function toNullableString(value: string) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function hasIdentityInput(form: { referenciaEsperada: string; nombreClienteOpcional: string }) {
+  return Boolean(
+    toNullableString(form.referenciaEsperada) || toNullableString(form.nombreClienteOpcional),
+  );
+}
+
 function displayReference(value?: string | null) {
   return value?.trim() ? value : 'Sin referencia';
 }
@@ -73,8 +79,8 @@ export function ManualVerificationView() {
       if (!form.fechaOperacion) {
         throw new Error('La fecha de operación es obligatoria.');
       }
-      if (!toNullableString(form.nombreClienteOpcional)) {
-        throw new Error('El nombre de quien envía es obligatorio con la política actual.');
+      if (!hasIdentityInput(form)) {
+        throw new Error('Debes informar referencia, nombre o ambos.');
       }
 
       return api.post<VerificationRecord>(`/companies/${companySlug}/verifications/operator-lookup`, {
@@ -105,8 +111,8 @@ export function ManualVerificationView() {
       if (!form.fechaOperacion) {
         throw new Error('La fecha de operación es obligatoria.');
       }
-      if (!toNullableString(form.nombreClienteOpcional)) {
-        throw new Error('El nombre de quien envía es obligatorio con la política actual.');
+      if (!hasIdentityInput(form)) {
+        throw new Error('Debes informar referencia, nombre o ambos.');
       }
 
       return api.post<VerificationRecord>(`/companies/${companySlug}/verifications/manual`, {
@@ -150,13 +156,13 @@ export function ManualVerificationView() {
   return (
     <AppShell
       title="Verificación manual"
-      description="Consulta el buzón con nombre, monto y fecha después de que llegue el correo. La referencia sigue siendo opcional. Ese mismo resultado exacto de autorización es el que ahora usa el API para permitir o bloquear el cierre de la transacción."
+      description="Consulta el buzón con referencia, nombre o ambos, además de monto y fecha después de que llegue el correo. Ese mismo resultado exacto de autorización es el que ahora usa el API para permitir o bloquear el cierre de la transacción."
     >
       <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <Card>
           <CardHeader>
             <CardTitle>Entrada de verificación</CardTitle>
-            <CardDescription>Usa la misma señal que enviaría un operador o un API externo después de que el correo de pago ya llegó: nombre exacto del pago, monto y fecha. La referencia ya no es obligatoria.</CardDescription>
+            <CardDescription>Usa la misma señal que enviaría un operador o un API externo después de que el correo de pago ya llegó: referencia, nombre o ambos, más monto y fecha.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
             <Input
@@ -242,13 +248,13 @@ export function ManualVerificationView() {
                 <LoaderCircle className="size-8 animate-spin text-primary" />
                 <p className="mt-4 font-semibold">Revisando evidencia del buzón</p>
                 <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-                  El backend está revisando el buzón almacenado y lanzará una actualización automática de Pub/Sub si la evidencia aún no está disponible con la política actual de nombre, monto y fecha.
+                  El backend está revisando el buzón almacenado y lanzará una actualización automática de Pub/Sub si la evidencia aún no está disponible con la política actual de referencia o nombre, más monto y fecha.
                 </p>
               </div>
             ) : !latestResult ? (
               <EmptyState
                 title="Aún no se ha evaluado ninguna verificación"
-                description="Consulta el buzón con nombre, monto y fecha después de que llegue el correo. La referencia es opcional. Crea una solicitud registrada solo cuando el caso deba mantenerse abierto."
+                description="Consulta el buzón con referencia, nombre o ambos, además de monto y fecha después de que llegue el correo. Crea una solicitud registrada solo cuando el caso deba mantenerse abierto."
               />
             ) : (
               <div className="space-y-4">

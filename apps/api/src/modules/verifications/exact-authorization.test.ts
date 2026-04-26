@@ -94,8 +94,11 @@ function buildCandidate(
 }
 
 describe('exact authorization evaluator', () => {
-  it('authorizes an exact sender-allowlisted payment inside the expected window even when the reference is omitted', () => {
-    const spec = buildExactAuthorizationSpec('company-default', buildInput({ referenciaEsperada: null }));
+  it('authorizes with an exact reference even when the customer name is omitted', () => {
+    const spec = buildExactAuthorizationSpec(
+      'company-default',
+      buildInput({ nombreClienteOpcional: null }),
+    );
 
     const result = evaluateExactAuthorization(spec, [buildCandidate()]);
 
@@ -106,23 +109,7 @@ describe('exact authorization evaluator', () => {
     expect(result.evidence?.gmailMessageId).toBe('gmail-email-1');
   });
 
-  it('rejects when the normalized sender name matches but the amount does not', () => {
-    const spec = buildExactAuthorizationSpec('company-default', buildInput());
-
-    const result = evaluateExactAuthorization(spec, [
-      buildCandidate({
-        parsedNotification: {
-          amount: new Prisma.Decimal(999.99),
-        },
-      }),
-    ]);
-
-    expect(result.authorized).toBe(false);
-    expect(result.reasonCode).toBe('amount');
-    expect(result.candidateCount).toBe(0);
-  });
-
-  it('matches the sender name exactly while ignoring case and accents', () => {
+  it('authorizes with an exact customer name even when the reference is omitted', () => {
     const spec = buildExactAuthorizationSpec(
       'company-default',
       buildInput({
@@ -143,6 +130,69 @@ describe('exact authorization evaluator', () => {
     expect(result.authorized).toBe(true);
     expect(result.reasonCode).toBe('authorized');
     expect(result.evidence?.originatorName).toBe('GUILLÉRMO DÍAZ ORTIZ');
+  });
+
+  it('authorizes when reference and customer name both match', () => {
+    const spec = buildExactAuthorizationSpec('company-default', buildInput());
+
+    const result = evaluateExactAuthorization(spec, [buildCandidate()]);
+
+    expect(result.authorized).toBe(true);
+    expect(result.reasonCode).toBe('authorized');
+    expect(result.candidateCount).toBe(1);
+    expect(result.riskFlags).not.toContain('authorized_via_reference_only');
+  });
+
+  it('authorizes with an exact reference even when the optional customer name does not match', () => {
+    const spec = buildExactAuthorizationSpec(
+      'company-default',
+      buildInput({
+        referenciaEsperada: 'REF879231',
+        nombreClienteOpcional: 'JUAN PEREZ',
+      }),
+    );
+
+    const result = evaluateExactAuthorization(spec, [buildCandidate()]);
+
+    expect(result.authorized).toBe(true);
+    expect(result.reasonCode).toBe('authorized');
+    expect(result.candidateCount).toBe(1);
+    expect(result.riskFlags).toContain('authorized_via_reference_only');
+  });
+
+  it('rejects clearly when neither reference nor customer name is provided', () => {
+    const spec = buildExactAuthorizationSpec(
+      'company-default',
+      buildInput({
+        referenciaEsperada: null,
+        nombreClienteOpcional: null,
+      }),
+    );
+
+    const result = evaluateExactAuthorization(spec, [buildCandidate()]);
+
+    expect(result.authorized).toBe(false);
+    expect(result.reasonCode).toBe('identity_required');
+    expect(result.candidateCount).toBe(0);
+  });
+
+  it('rejects when the exact identity matches but the amount does not', () => {
+    const spec = buildExactAuthorizationSpec(
+      'company-default',
+      buildInput({ nombreClienteOpcional: null }),
+    );
+
+    const result = evaluateExactAuthorization(spec, [
+      buildCandidate({
+        parsedNotification: {
+          amount: new Prisma.Decimal(999.99),
+        },
+      }),
+    ]);
+
+    expect(result.authorized).toBe(false);
+    expect(result.reasonCode).toBe('amount');
+    expect(result.candidateCount).toBe(0);
   });
 
   it('authorizes when the evidence name is a strong subset of the provided full name', () => {
@@ -190,8 +240,11 @@ describe('exact authorization evaluator', () => {
     expect(result.reasonCode).toBe('name');
   });
 
-  it('rejects when exact payment evidence falls outside the expected window', () => {
-    const spec = buildExactAuthorizationSpec('company-default', buildInput());
+  it('rejects when identity and amount match but the evidence falls outside the expected window', () => {
+    const spec = buildExactAuthorizationSpec(
+      'company-default',
+      buildInput({ nombreClienteOpcional: null }),
+    );
 
     const result = evaluateExactAuthorization(spec, [
       buildCandidate({
@@ -209,7 +262,10 @@ describe('exact authorization evaluator', () => {
   });
 
   it('uses inbox arrival time instead of the parsed body timestamp for the date window', () => {
-    const spec = buildExactAuthorizationSpec('company-default', buildInput());
+    const spec = buildExactAuthorizationSpec(
+      'company-default',
+      buildInput({ nombreClienteOpcional: null }),
+    );
 
     const result = evaluateExactAuthorization(spec, [
       buildCandidate({
@@ -228,7 +284,10 @@ describe('exact authorization evaluator', () => {
   });
 
   it('never authorizes a matching email when the sender classification is none', () => {
-    const spec = buildExactAuthorizationSpec('company-default', buildInput());
+    const spec = buildExactAuthorizationSpec(
+      'company-default',
+      buildInput({ nombreClienteOpcional: null }),
+    );
 
     const result = evaluateExactAuthorization(spec, [
       buildCandidate({
@@ -248,7 +307,22 @@ describe('exact authorization evaluator', () => {
     expect(result.evidence?.senderMatchType).toBe('none');
   });
 
-  it('rejects when the sender is allowlisted but the normalized payment name does not match', () => {
+  it('rejects by reference when both identifiers are provided but the reference does not exist', () => {
+    const spec = buildExactAuthorizationSpec(
+      'company-default',
+      buildInput({
+        referenciaEsperada: 'REF-NOT-FOUND',
+        nombreClienteOpcional: 'CLUB SAMS CARACAS',
+      }),
+    );
+
+    const result = evaluateExactAuthorization(spec, [buildCandidate()]);
+
+    expect(result.authorized).toBe(false);
+    expect(result.reasonCode).toBe('reference');
+  });
+
+  it('rejects when the sender is allowlisted but the normalized payment name does not match in name-only mode', () => {
     const spec = buildExactAuthorizationSpec(
       'company-default',
       buildInput({
@@ -272,7 +346,10 @@ describe('exact authorization evaluator', () => {
   });
 
   it('chooses evidence deterministically across duplicate exact candidates', () => {
-    const spec = buildExactAuthorizationSpec('company-default', buildInput());
+    const spec = buildExactAuthorizationSpec(
+      'company-default',
+      buildInput({ nombreClienteOpcional: null }),
+    );
 
     const result = evaluateExactAuthorization(spec, [
       buildCandidate({

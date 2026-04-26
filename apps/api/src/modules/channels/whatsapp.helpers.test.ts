@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildImageFallbackReply,
   buildVerificationStrategies,
   extractVerificationFromText,
+  getMissingVerificationFields,
   mergeCollectedVerificationInput,
 } from './whatsapp.helpers';
 
@@ -109,5 +111,37 @@ describe('whatsapp helpers', () => {
       code: 'extracted_date_day',
       toleranciaMinutos: 720,
     });
+  });
+
+  it('treats reference or name as alternative identity fields for WhatsApp collection', () => {
+    expect(
+      getMissingVerificationFields({
+        reference: '000123456124',
+        customerName: null,
+        amount: null,
+        currency: 'USD',
+        currencySource: 'default',
+        bank: null,
+        extractedDate: null,
+        extractedTime: null,
+      }),
+    ).toEqual(['monto']);
+
+    expect(
+      getMissingVerificationFields({
+        reference: null,
+        customerName: null,
+        amount: 123,
+        currency: 'USD',
+        currencySource: 'default',
+        bank: null,
+        extractedDate: null,
+        extractedTime: null,
+      }),
+    ).toEqual(['referencia o nombre']);
+  });
+
+  it('asks for reference or name when image extraction is insufficient', () => {
+    expect(buildImageFallbackReply()).toContain('referencia o nombre');
   });
 });

@@ -17,6 +17,7 @@ import { createTransfer, confirmTransfer, rejectTransfer } from '../transfers/tr
 import {
   buildExactAuthorizationSpec,
   evaluateExactAuthorization,
+  hasVerificationIdentity,
   loadVerificationCandidateEmails,
   type ExactAuthorizationSpec,
   type VerificationCandidateEmail,
@@ -228,6 +229,14 @@ async function loadVerificationCandidatesWithAutoRefresh(
   companySlug: string,
   spec: ExactAuthorizationSpec,
 ) {
+  if (!hasVerificationIdentity(spec)) {
+    return {
+      candidateEmails: [] as VerificationCandidateEmail[],
+      exact: evaluateExactAuthorization(spec, []),
+      autoRefresh: defaultAutoRefreshResult(),
+    };
+  }
+
   const initial = await loadVerificationCandidateEmails(spec);
   const initialExact = evaluateExactAuthorization(spec, initial.candidateEmails);
 

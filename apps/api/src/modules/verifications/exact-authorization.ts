@@ -126,6 +126,10 @@ function currencyCompatible(
   return parsedCurrency ? parsedCurrency === spec.currency : true;
 }
 
+function hasComparableValue(value: string | null | undefined) {
+  return Boolean(normalizeComparable(value));
+}
+
 function exactReferenceMatch(
   email: VerificationCandidateEmail,
   spec: ExactAuthorizationSpec,
@@ -197,6 +201,20 @@ function withinExpectedWindow(
       arrivalTimestamp >= window.expectedWindowFrom &&
       arrivalTimestamp <= window.expectedWindowTo,
   );
+}
+
+function filterByAmountAndCurrency(
+  candidates: VerificationCandidateEmail[],
+  spec: ExactAuthorizationSpec,
+) {
+  return candidates.filter((email) => exactAmountMatch(email, spec) && currencyCompatible(email, spec));
+}
+
+function filterByExpectedWindow(
+  candidates: VerificationCandidateEmail[],
+  spec: VerificationLookupWindow,
+) {
+  return candidates.filter((email) => withinExpectedWindow(email, spec));
 }
 
 function chooseBestEvidence(
@@ -294,6 +312,12 @@ export function buildVerificationLookupWindow(
   };
 }
 
+export function hasVerificationIdentity(
+  spec: Pick<ExactAuthorizationSpec, 'referenceExpected' | 'customerNameExpected'>,
+) {
+  return hasComparableValue(spec.referenceExpected) || hasComparableValue(spec.customerNameExpected);
+}
+
 export function buildExactAuthorizationSpec(
   companyId: string,
   input: CreateManualVerificationInput,
@@ -373,43 +397,123 @@ export function evaluateExactAuthorization(
   spec: ExactAuthorizationSpec,
   candidateEmails: VerificationCandidateEmail[],
 ): ExactAuthorizationResult {
+  const hasReference = hasComparableValue(spec.referenceExpected);
+  const hasName = hasComparableValue(spec.customerNameExpected);
   const senderCandidates = candidateEmails.filter(
     (email) => email.senderMatchType !== 'NONE',
   );
-  const looseReferenceCandidates = spec.referenceExpected
+  const looseReferenceCandidates = hasReference
     ? candidateEmails.filter((email) => exactReferenceMatch(email, spec))
     : [];
-  const nameCandidates = senderCandidates.filter((email) => exactCustomerNameMatch(email, spec));
-  const looseNameCandidates = candidateEmails.filter((email) => exactCustomerNameMatch(email, spec));
-  const looseAmountCandidates = looseNameCandidates.filter(
-    (email) => exactAmountMatch(email, spec) && currencyCompatible(email, spec),
-  );
-  const amountCandidates = nameCandidates.filter(
-    (email) => exactAmountMatch(email, spec) && currencyCompatible(email, spec),
-  );
-  const looseDateCandidates = looseAmountCandidates.filter((email) => withinExpectedWindow(email, spec));
-  const exactCandidates = amountCandidates.filter((email) => withinExpectedWindow(email, spec));
+  const looseNameCandidates = hasName
+    ? candidateEmails.filter((email) => exactCustomerNameMatch(email, spec))
+    : [];
+
+  if (!hasReference && !hasName) {
+    const evidencePool = selectEvidencePool([senderCandidates, candidateEmails]);
+    const evidenceEmail = chooseBestEvidence(evidencePool, spec.operationAt);
+    const strongestEmail = evidenceEmail ? serializeInboundEmail(evidenceEmail) : null;
+    const evidence = buildEvidenceRecord(evidenceEmail);
+    const senderMatchType = evidence?.senderMatchType ?? 'none';
+    const { officialSenderMatched, riskFlags } = getEmailRiskFlags(evidenceEmail);
+
+    return {
+      authorized: false,
+      reasonCode: 'identity_required',
+      candidateCount: 0,
+      senderMatchType,
+      evidence,
+      strongestEmail,
+      strongestAuthStatus: evidence?.authenticityStatus ?? null,
+      strongestAuthScore: evidence?.authScore ?? null,
+      officialSenderMatched,
+      riskFlags: [...new Set([...(riskFlags ?? []), ...readRiskFlags(evidence?.riskFlags)])],
+      candidateEmails,
+    };
+  }
+
+  const referenceCandidates = hasReference
+    ? senderCandidates.filter((email) => exactReferenceMatch(email, spec))
+    : [];
+  const nameCandidates = hasName
+    ? senderCandidates.filter((email) => exactCustomerNameMatch(email, spec))
+    : [];
+  const strictIdentityCandidates = hasReference && hasName
+    ? referenceCandidates.filter((email) => exactCustomerNameMatch(email, spec))
+    : hasReference
+      ? referenceCandidates
+      : nameCandidates;
+  const primaryIdentityCandidates = hasReference ? referenceCandidates : nameCandidates;
+  const strictAmountCandidates = filterByAmountAndCurrency(strictIdentityCandidates, spec);
+  const primaryAmountCandidates = filterByAmountAndCurrency(primaryIdentityCandidates, spec);
+  const strictExactCandidates = filterByExpectedWindow(strictAmountCandidates, spec);
+  const primaryExactCandidates = filterByExpectedWindow(primaryAmountCandidates, spec);
+
+  let exactCandidates = primaryExactCandidates;
+  const evaluationRiskFlags: string[] = [];
+
+  if (hasReference && hasName) {
+    if (strictExactCandidates.length > 0) {
+      exactCandidates = strictExactCandidates;
+    } else if (primaryExactCandidates.length > 0) {
+      exactCandidates = primaryExactCandidates;
+      evaluationRiskFlags.push('authorized_via_reference_only');
+    } else {
+      exactCandidates = [];
+    }
+  }
+
   const authorized = exactCandidates.length > 0;
   const reasonCode: VerificationReasonCode = authorized
     ? 'authorized'
     : senderCandidates.length === 0
       ? 'sender'
-      : nameCandidates.length === 0
-        ? 'name'
-        : amountCandidates.length === 0
-          ? 'amount'
-          : 'date';
-  const evidencePool = selectEvidencePool([
-    exactCandidates,
-    amountCandidates,
-    nameCandidates,
-    senderCandidates,
-    looseDateCandidates,
-    looseAmountCandidates,
-    looseNameCandidates,
-    looseReferenceCandidates,
-    candidateEmails,
-  ]);
+      : hasReference
+        ? referenceCandidates.length === 0
+          ? 'reference'
+          : primaryAmountCandidates.length === 0
+            ? 'amount'
+            : 'date'
+        : nameCandidates.length === 0
+          ? 'name'
+          : primaryAmountCandidates.length === 0
+            ? 'amount'
+            : 'date';
+
+  const evidencePool = selectEvidencePool(
+    hasReference && hasName
+      ? [
+          exactCandidates,
+          strictExactCandidates,
+          primaryExactCandidates,
+          strictAmountCandidates,
+          primaryAmountCandidates,
+          strictIdentityCandidates,
+          primaryIdentityCandidates,
+          nameCandidates,
+          senderCandidates,
+          looseReferenceCandidates,
+          looseNameCandidates,
+          candidateEmails,
+        ]
+      : hasReference
+        ? [
+            exactCandidates,
+            primaryAmountCandidates,
+            primaryIdentityCandidates,
+            senderCandidates,
+            looseReferenceCandidates,
+            candidateEmails,
+          ]
+        : [
+            exactCandidates,
+            primaryAmountCandidates,
+            primaryIdentityCandidates,
+            senderCandidates,
+            looseNameCandidates,
+            candidateEmails,
+          ],
+  );
   const evidenceEmail = chooseBestEvidence(evidencePool, spec.operationAt);
   const strongestEmail = evidenceEmail ? serializeInboundEmail(evidenceEmail) : null;
   const evidence = buildEvidenceRecord(evidenceEmail);
@@ -426,7 +530,13 @@ export function evaluateExactAuthorization(
     strongestAuthStatus: evidence?.authenticityStatus ?? null,
     strongestAuthScore: evidence?.authScore ?? null,
     officialSenderMatched,
-    riskFlags: [...new Set([...(riskFlags ?? []), ...readRiskFlags(evidence?.riskFlags)])],
+    riskFlags: [
+      ...new Set([
+        ...(riskFlags ?? []),
+        ...readRiskFlags(evidence?.riskFlags),
+        ...evaluationRiskFlags,
+      ]),
+    ],
     candidateEmails,
   };
 }

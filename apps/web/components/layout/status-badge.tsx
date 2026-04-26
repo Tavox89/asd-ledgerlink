@@ -38,6 +38,7 @@ const statusMap: Record<string, 'neutral' | 'success' | 'warning' | 'danger' | '
   name: 'warning',
   amount: 'warning',
   date: 'warning',
+  identity_required: 'warning',
   authorized: 'success',
 };
 

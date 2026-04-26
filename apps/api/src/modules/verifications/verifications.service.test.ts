@@ -188,4 +188,41 @@ describe('verification service auto-refresh', () => {
       processed: 0,
     });
   });
+
+  it('does not hit Gmail or Pub/Sub when neither reference nor name is provided', async () => {
+    const { authorizeVerification } = await import('./verifications.service');
+
+    evaluateExactAuthorization.mockReturnValue({
+      authorized: false,
+      reasonCode: 'identity_required',
+      candidateCount: 0,
+      senderMatchType: 'none',
+      evidence: null,
+      strongestEmail: null,
+      strongestAuthStatus: null,
+      strongestAuthScore: null,
+      officialSenderMatched: 'unknown',
+      riskFlags: [],
+      candidateEmails: [],
+    });
+
+    const result = await authorizeVerification(
+      'default',
+      buildInput({
+        referenciaEsperada: null,
+        nombreClienteOpcional: null,
+      }),
+    );
+
+    expect(loadVerificationCandidateEmails).not.toHaveBeenCalled();
+    expect(pullGmailPubSubMessages).not.toHaveBeenCalled();
+    expect(result.authorized).toBe(false);
+    expect(result.reasonCode).toBe('identity_required');
+    expect(result.autoRefresh).toEqual({
+      attempted: false,
+      status: 'not_needed',
+      pulled: 0,
+      processed: 0,
+    });
+  });
 });

@@ -158,8 +158,8 @@ describe('whatsapp service', () => {
     });
 
     expect(result.status).toBe('incomplete');
-    expect(result.replyText).toContain('nombre');
     expect(result.replyText).toContain('monto');
+    expect(result.replyText).not.toContain('nombre');
     expect(authorizeVerification).not.toHaveBeenCalled();
     expect(prismaMock.whatsAppConversation.update).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -35,6 +35,7 @@ const LABELS: Record<string, string> = {
   name: 'nombre',
   amount: 'monto',
   date: 'fecha',
+  identity_required: 'referencia o nombre requeridos',
   authorized: 'autorizado',
   blocked: 'bloqueado',
   default: 'predeterminado',

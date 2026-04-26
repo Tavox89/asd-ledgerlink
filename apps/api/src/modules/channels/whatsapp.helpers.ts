@@ -394,8 +394,8 @@ export function mergeCollectedVerificationInput(
 
 export function getMissingVerificationFields(input: CollectedVerificationInput) {
   const missing: string[] = [];
-  if (!input.customerName) {
-    missing.push('nombre');
+  if (!input.reference && !input.customerName) {
+    missing.push('referencia o nombre');
   }
   if (input.amount === null || input.amount === undefined) {
     missing.push('monto');
@@ -454,6 +454,8 @@ function reasonRank(reasonCode: VerificationReasonCode) {
       return 1;
     case 'reference':
       return 1;
+    case 'identity_required':
+      return 0;
     default:
       return 0;
   }
@@ -499,6 +501,8 @@ export function translateVerificationReason(reasonCode: VerificationReasonCode) 
       return 'el monto no coincide con la evidencia encontrada';
     case 'date':
       return 'la fecha probada no cae dentro de la evidencia exacta';
+    case 'identity_required':
+      return 'se requiere referencia o nombre para buscar evidencia';
     default:
       return 'se encontro evidencia exacta';
   }
@@ -525,7 +529,7 @@ export function buildUnsupportedMediaReply() {
 }
 
 export function buildImageFallbackReply() {
-  return 'Recibi la imagen, pero no pude identificar un comprobante de pago. Enviame nombre y monto para continuar.';
+  return 'Recibi la imagen, pero no pude identificar un comprobante de pago. Enviame referencia o nombre, y monto para continuar.';
 }
 
 export function buildTwimlResponse(message?: string | null) {

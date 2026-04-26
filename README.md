@@ -87,9 +87,9 @@ curl -X POST http://localhost:4000/gmail/pubsub/pull
 
 8. Review stored emails in `/companies/<slug>/emails`
 9. Create expected transfers in `/companies/<slug>/transfers/new`
-10. Use `/companies/<slug>/verifications` to query stored inbox evidence with `name + amount + date` after the email arrives; `reference` is optional support data
+10. Use `/companies/<slug>/verifications` to query stored inbox evidence with `reference`, `name`, or both, plus `amount + date` after the email arrives
 11. Create a company integration token before connecting WordPress/OpenPOS or another external bridge
-12. Use `POST /companies/:companySlug/verifications/authorize` when an external system needs a binary close/no-close authorization with evidence
+12. Use `POST /companies/:companySlug/verifications/authorize` when an external system needs a binary close/no-close authorization with evidence. Identity can be driven by exact `referenciaEsperada`, exact `nombreClienteOpcional`, or both together.
 13. Create a tracked verification request from the same screen only when you need manual follow-up
 14. Point your Twilio WhatsApp webhook to `POST /channels/whatsapp/twilio/webhook` when you want to pilot inbound payment verification over WhatsApp
 15. Inspect generated matches in `/companies/<slug>/matches`
