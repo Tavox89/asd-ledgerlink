@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildImageFallbackReply,
   buildVerificationStrategies,
+  detectVerificationMethod,
   extractVerificationFromText,
   getMissingVerificationFields,
   mergeCollectedVerificationInput,
@@ -20,6 +21,19 @@ describe('whatsapp helpers', () => {
     expect(result.currency).toBe('USD');
     expect(result.date).toBe('2026-04-17');
     expect(result.time).toBe('14:38');
+  });
+
+  it('extracts Binance order id, alias, USDT amount, and UTC-like date text', () => {
+    const result = extractVerificationFromText(
+      'Pago 5 USDT exitosamente. Alias: Gedcorp. ID de orden 428221485342556160. Fecha 2026-04-26 22:36',
+    );
+
+    expect(result.reference).toBe('428221485342556160');
+    expect(result.alias).toBe('Gedcorp');
+    expect(result.amount).toBe(5);
+    expect(result.currency).toBe('USD');
+    expect(result.date).toBe('2026-04-26');
+    expect(result.time).toBe('22:36');
   });
 
   it('extracts date when the month is written without "de"', () => {
@@ -50,6 +64,7 @@ describe('whatsapp helpers', () => {
       {
         reference: 'STATE-001',
         customerName: 'State Name',
+        alias: 'State Alias',
         amount: 90,
         currency: 'USD',
         bank: 'Banco Estado',
@@ -59,6 +74,7 @@ describe('whatsapp helpers', () => {
       {
         reference: 'TXT-999',
         customerName: 'Texto Nombre',
+        alias: 'Texto Alias',
         amount: 123,
         currency: 'USD',
         bank: 'Banco Texto',
@@ -71,6 +87,7 @@ describe('whatsapp helpers', () => {
         isTransferProof: true,
         reference: 'IMG-555',
         customerName: 'Imagen Nombre',
+        alias: 'Imagen Alias',
         amount: 111,
         currency: 'VES',
         bank: 'Banco Imagen',
@@ -82,6 +99,7 @@ describe('whatsapp helpers', () => {
 
     expect(merged.reference).toBe('TXT-999');
     expect(merged.customerName).toBe('Texto Nombre');
+    expect(merged.alias).toBe('Texto Alias');
     expect(merged.amount).toBe(123);
     expect(merged.currency).toBe('USD');
     expect(merged.bank).toBe('Banco Texto');
@@ -143,5 +161,48 @@ describe('whatsapp helpers', () => {
 
   it('asks for reference or name when image extraction is insufficient', () => {
     expect(buildImageFallbackReply()).toContain('referencia o nombre');
+  });
+
+  it('detects Binance on the shared WhatsApp channel using capture/text signals', () => {
+    const textExtraction = extractVerificationFromText(
+      'Pago 5 USDT exitosamente. Alias: Gedcorp. ID de orden 428221485342556160. Fecha 2026-04-26 22:36',
+    );
+    const merged = mergeCollectedVerificationInput(
+      null,
+      textExtraction,
+      {
+        isTransferProof: true,
+        reference: '428221485342556160',
+        customerName: 'Edelynr',
+        alias: 'Gedcorp',
+        amount: 5,
+        currency: 'USD',
+        date: '2026-04-26',
+        time: '22:36',
+        bank: 'Binance',
+        confidence: 94,
+        rawText: '{"bank":"Binance"}',
+      },
+    );
+
+    expect(
+      detectVerificationMethod({
+        textExtraction,
+        imageExtraction: {
+          isTransferProof: true,
+          reference: '428221485342556160',
+          customerName: 'Edelynr',
+          alias: 'Gedcorp',
+          amount: 5,
+          currency: 'USD',
+          date: '2026-04-26',
+          time: '22:36',
+          bank: 'Binance',
+          confidence: 94,
+          rawText: '{"bank":"Binance"}',
+        },
+        mergedInput: merged,
+      }),
+    ).toBe('binance');
   });
 });

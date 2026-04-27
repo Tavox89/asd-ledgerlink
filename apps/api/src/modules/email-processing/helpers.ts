@@ -93,8 +93,10 @@ export function extractAmountAndCurrency(text: string): {
   currency: CurrencyCode | null;
 } {
   const patterns: Array<{ regex: RegExp; currency: CurrencyCode }> = [
+    { regex: /(?:USDT)\s*([\d.,]+)/i, currency: 'USD' },
     { regex: /(?:USD|US\$|\$)\s*([\d.,]+)/i, currency: 'USD' },
     { regex: /(?:VES|BS\.?|BOL[ÍI]VARES?)\s*([\d.,]+)/i, currency: 'VES' },
+    { regex: /([\d.,]+)\s*(USDT)/i, currency: 'USD' },
     { regex: /([\d.,]+)\s*(USD|US\$)/i, currency: 'USD' },
     { regex: /([\d.,]+)\s*(VES|BS\.?|BOL[ÍI]VARES?)/i, currency: 'VES' },
   ];
@@ -124,6 +126,7 @@ export function extractAmountAndCurrency(text: string): {
 
 export function extractReference(text: string) {
   const patterns = [
+    /(?:\border\s*id\b|\borderid\b|\bid\s*de\s*orden\b)[:#\s-]*\(?\s*([A-Z0-9-]{5,})\s*\)?/i,
     /(?:\breference\s*id\b|\breferenceid\b|\breferencia\b|\bref\.?(?=\s|[:#\-(])|nro\.?\s*de\s*referencia|n[úu]mero\s*de\s*referencia)[:#\s-]*\(?\s*([A-Z0-9-]{5,})\s*\)?/i,
     /(?:operaci[oó]n|transacci[oó]n|confirmaci[oó]n)[:#\s-]*\(?\s*([A-Z0-9-]{5,})\s*\)?/i,
     /c[oó]digo[:#\s-]*\(?\s*([A-Z0-9-]{5,})\s*\)?/i,
@@ -158,6 +161,7 @@ export function extractDestinationLast4(text: string) {
 export function extractOriginatorName(text: string) {
   const patterns = [
     /notification\s*-\s*([a-záéíóúñ ]{4,}?)\s+sent\s+you\s+\$/i,
+    /(?:^|\s)from[:\s-]*([A-ZÁÉÍÓÚÑa-záéíóúñ0-9_. -]{3,})(?=\s+(?:amount|time|monto|fecha)\b|$)/i,
     /(?:ordenante|originador|cliente|remitente|beneficiario)[:\s-]*([A-ZÁÉÍÓÚÑ ]{4,})/i,
     /(?:nombre)[:\s-]*([A-ZÁÉÍÓÚÑ ]{4,})/i,
   ];
@@ -173,6 +177,14 @@ export function extractOriginatorName(text: string) {
 }
 
 export function extractDateTime(text: string) {
+  const utcMatch = text.match(/(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}:\d{2})\s*\(UTC\)/i)?.[1];
+  if (utcMatch) {
+    const parsedUtc = dayjs.utc(utcMatch, 'YYYY-MM-DD HH:mm:ss', true);
+    if (parsedUtc.isValid()) {
+      return parsedUtc.toDate();
+    }
+  }
+
   const patterns = [
     /(\d{2}\/\d{2}\/\d{4}\s+\d{1,2}:\d{2}(?::\d{2})?)/,
     /(\d{2}-\d{2}-\d{4}\s+\d{1,2}:\d{2}(?::\d{2})?)/,
@@ -207,6 +219,9 @@ export function extractDateTime(text: string) {
 
 export function inferBankName(text: string, fromAddress?: string | null) {
   const source = `${text} ${fromAddress ?? ''}`.toLowerCase();
+  if (source.includes('binance')) {
+    return 'Binance';
+  }
   if (source.includes('banesco')) {
     return 'Banesco';
   }

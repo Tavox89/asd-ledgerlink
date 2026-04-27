@@ -12,6 +12,10 @@ function normalizeCurrency(value?: string | null): CurrencyCode | null {
     return normalized;
   }
 
+  if (normalized === 'USDT') {
+    return 'USD';
+  }
+
   return null;
 }
 
@@ -105,7 +109,7 @@ export async function extractVerificationFromImage(
           {
             type: 'text',
             text:
-              `Responde con este JSON exacto: {"isTransferProof":boolean,"reference":string|null,"customerName":string|null,"amount":number|null,"currency":"USD"|"VES"|"EUR"|"COP"|null,"date":"YYYY-MM-DD"|null,"time":"HH:mm"|null,"bank":string|null,"confidence":number}. Si la captura muestra un nombre del pago o destinatario, usa el nombre mas completo visible, por ejemplo el de "Enrolled as". Toma como fecha de referencia ${dayjs(referenceDate).format('YYYY-MM-DD')}. Si la captura dice Today/Hoy, usa esa fecha; si dice Yesterday/Ayer, usa el dia anterior. Marca isTransferProof=true si la imagen parece contener evidencia razonable de transferencia o pago aunque este recortada, reenviada, comprimida o parcialmente visible. Si faltan campos, deja null solo en los que no se vean. Usa isTransferProof=false solo cuando claramente no parezca un comprobante o captura de pago.`,
+              `Responde con este JSON exacto: {"isTransferProof":boolean,"reference":string|null,"customerName":string|null,"alias":string|null,"amount":number|null,"currency":"USD"|"VES"|"EUR"|"COP"|null,"date":"YYYY-MM-DD"|null,"time":"HH:mm"|null,"bank":string|null,"confidence":number}. Si la captura muestra un nombre del pago o destinatario, usa el nombre mas completo visible, por ejemplo el de "Enrolled as". Si la captura es de Binance y muestra "Alias", extraelo en alias. Si la captura usa USDT, normaliza currency a USD. Toma como fecha de referencia ${dayjs(referenceDate).format('YYYY-MM-DD')}. Si la captura dice Today/Hoy, usa esa fecha; si dice Yesterday/Ayer, usa el dia anterior. Marca isTransferProof=true si la imagen parece contener evidencia razonable de transferencia o pago aunque este recortada, reenviada, comprimida o parcialmente visible. Si faltan campos, deja null solo en los que no se vean. Usa isTransferProof=false solo cuando claramente no parezca un comprobante o captura de pago.`,
           },
           {
             type: 'image_url',
@@ -123,6 +127,7 @@ export async function extractVerificationFromImage(
     isTransferProof?: boolean;
     reference?: string | null;
     customerName?: string | null;
+    alias?: string | null;
     amount?: number | null;
     currency?: string | null;
     date?: string | null;
@@ -151,6 +156,7 @@ export async function extractVerificationFromImage(
     isTransferProof: Boolean(parsed.isTransferProof),
     reference: parsed.reference?.trim() || null,
     customerName: parsed.customerName?.trim() || null,
+    alias: parsed.alias?.trim() || null,
     amount: typeof parsed.amount === 'number' ? parsed.amount : null,
     currency: normalizeCurrency(parsed.currency),
     date: normalizeRelativeDate(parsed.date, referenceDate),

@@ -9,18 +9,20 @@ import { prisma } from '../../lib/prisma';
 import { ActorType, WhatsAppConversationStatus, WhatsAppVerificationAttemptStatus } from '../../lib/prisma-runtime';
 import { serializeWhatsAppVerificationAttempt } from '../../lib/serializers';
 import { DEFAULT_COMPANY_SLUG, getCompanyBySlugOrThrow } from '../companies/companies.service';
-import { authorizeVerification } from '../verifications/verifications.service';
+import { authorizeBinanceVerification, authorizeVerification } from '../verifications/verifications.service';
 import {
   buildAuthorizedReply,
   buildBlockedReply,
   buildImageFallbackReply,
   buildMissingFieldsReply,
   buildTwimlResponse,
+  buildUnknownMethodReply,
   buildUnauthorizedPhoneReply,
   buildUnsupportedMediaReply,
   buildVerificationNotes,
   buildVerificationStrategies,
   choosePreferredStrategyResult,
+  detectVerificationMethod,
   extractVerificationFromText,
   findFirstImageAttachment,
   formatStrategyTimestamp,
@@ -29,6 +31,7 @@ import {
   normalizeWhatsAppPhone,
   parseTwilioMedia,
   type CollectedVerificationInput,
+  type VerificationPaymentMethod,
   type TwilioWebhookPayload,
 } from './whatsapp.helpers';
 import { sendTwilioWhatsAppReply } from './whatsapp.twilio';
@@ -72,19 +75,20 @@ function parseStoredPartialPayload(value: unknown): Partial<CollectedVerificatio
 }
 
 function buildVerificationInput(
+  method: Exclude<VerificationPaymentMethod, 'unknown'>,
   input: CollectedVerificationInput,
   strategy: { fechaOperacion: string; toleranciaMinutos: number; code: string },
 ): CreateManualVerificationInput {
   return {
     referenciaEsperada: input.reference ?? '',
     montoEsperado: input.amount ?? 0,
-    moneda: input.currency,
+    moneda: method === 'binance' ? 'USD' : input.currency,
     fechaOperacion: strategy.fechaOperacion,
     toleranciaMinutos: strategy.toleranciaMinutos,
-    bancoEsperado: input.bank,
+    bancoEsperado: method === 'binance' ? 'Binance' : input.bank,
     cuentaDestinoUltimos4: null,
     nombreClienteOpcional: input.customerName,
-    notas: buildVerificationNotes(strategy),
+    notas: buildVerificationNotes(strategy, method),
   };
 }
 
@@ -458,6 +462,17 @@ export async function processIncomingTwilioWebhook(
     mergedInput,
     mediaCount: media.length,
   });
+  const verificationMethod = detectVerificationMethod({
+    textExtraction,
+    imageExtraction,
+    mergedInput,
+  });
+  const missingFields = getMissingVerificationFields(mergedInput);
+  const shouldSendImageFallback =
+    Boolean(firstImage) &&
+    imageExtraction !== null &&
+    !imageExtraction.isTransferProof &&
+    missingFields.length > 0;
 
   if (hasUnsupportedMedia && !body.Body?.trim()) {
     const replyText = buildUnsupportedMediaReply();
@@ -501,12 +516,54 @@ export async function processIncomingTwilioWebhook(
     };
   }
 
-  const missingFields = getMissingVerificationFields(mergedInput);
-  const shouldSendImageFallback =
-    Boolean(firstImage) &&
-    imageExtraction !== null &&
-    !imageExtraction.isTransferProof &&
-    missingFields.length > 0;
+  if (verificationMethod === 'unknown') {
+    const replyText = shouldSendImageFallback
+      ? buildImageFallbackReply()
+      : buildUnknownMethodReply();
+
+    await prisma.whatsAppConversation.update({
+      where: { id: conversation.id },
+      data: {
+        status: WhatsAppConversationStatus.AWAITING_DETAILS,
+        partialPayload: mergedInput as never,
+        pendingFields: (shouldSendImageFallback ? missingFields : ['metodo']) as never,
+        lastInboundMessageId: inboundMessage.id,
+        lastInboundAt: inboundMessage.receivedAt,
+        lastAttemptAt: inboundMessage.receivedAt,
+      },
+    });
+
+    const attempt = await persistAttempt({
+      companyId: channel.companyId,
+      conversationId: conversation.id,
+      inboundMessageId: inboundMessage.id,
+      phoneNumber,
+      status: 'incomplete',
+      sourceSummary: {
+        ...sourceSummary,
+        verificationMethod,
+      },
+      mergedInput,
+      missingFields: shouldSendImageFallback ? missingFields : ['metodo'],
+      dateStrategies: [],
+      finalResult: {
+        replyText,
+        verificationMethod,
+      },
+      rawPayload: body,
+    });
+
+    return {
+      replyText,
+      status: 'incomplete',
+      attemptId: attempt.id,
+      companyId: channel.companyId,
+      conversationId: conversation.id,
+      recipientPhoneNumber: phoneNumber,
+      channelPhoneNumber: channel.phoneNumber,
+      messagingServiceSid: channel.messagingServiceSid,
+    };
+  }
 
   if (missingFields.length > 0) {
     const replyText = shouldSendImageFallback
@@ -531,7 +588,10 @@ export async function processIncomingTwilioWebhook(
       inboundMessageId: inboundMessage.id,
       phoneNumber,
       status: 'incomplete',
-      sourceSummary,
+      sourceSummary: {
+        ...sourceSummary,
+        verificationMethod,
+      },
       mergedInput,
       missingFields,
       dateStrategies: [],
@@ -550,6 +610,7 @@ export async function processIncomingTwilioWebhook(
       metadata: {
         phoneNumber,
         status: 'incomplete',
+        verificationMethod,
         missingFields,
         imageFallbackApplied: shouldSendImageFallback,
         visionFailureReason: imageExtraction?.failureReason ?? null,
@@ -578,7 +639,11 @@ export async function processIncomingTwilioWebhook(
   }> = [];
 
   for (const strategy of strategies) {
-    const result = await authorizeVerification(channel.company.slug, buildVerificationInput(mergedInput, strategy));
+    const verificationInput = buildVerificationInput(verificationMethod, mergedInput, strategy);
+    const result =
+      verificationMethod === 'binance'
+        ? await authorizeBinanceVerification(channel.company.slug, verificationInput)
+        : await authorizeVerification(channel.company.slug, verificationInput);
     strategyResults.push({
       strategy,
       result,
@@ -594,8 +659,8 @@ export async function processIncomingTwilioWebhook(
   }
 
   const replyText = selected.result.authorized
-    ? buildAuthorizedReply(mergedInput, selected.strategy.label)
-    : buildBlockedReply(mergedInput, selected.result.reasonCode, selected.strategy.label);
+    ? buildAuthorizedReply(verificationMethod, mergedInput, selected.strategy.label)
+    : buildBlockedReply(verificationMethod, mergedInput, selected.result.reasonCode, selected.strategy.label);
 
   await prisma.whatsAppConversation.update({
     where: { id: conversation.id },
@@ -615,7 +680,10 @@ export async function processIncomingTwilioWebhook(
     inboundMessageId: inboundMessage.id,
     phoneNumber,
     status: selected.result.authorized ? 'authorized' : 'blocked',
-    sourceSummary,
+    sourceSummary: {
+      ...sourceSummary,
+      verificationMethod,
+    },
     mergedInput,
     missingFields: [],
     dateStrategies: strategyResults.map((item) => ({
@@ -636,6 +704,7 @@ export async function processIncomingTwilioWebhook(
       authorized: selected.result.authorized,
       reasonCode: selected.result.reasonCode,
       strategy: selected.strategy,
+      verificationMethod,
       replyText,
       evidence: selected.result.evidence,
     },
@@ -651,6 +720,7 @@ export async function processIncomingTwilioWebhook(
     metadata: {
       phoneNumber,
       status: selected.result.authorized ? 'authorized' : 'blocked',
+      verificationMethod,
       reasonCode: selected.result.reasonCode,
       strategyCode: selected.strategy.code,
       twilioMessageSid: body.MessageSid ?? null,

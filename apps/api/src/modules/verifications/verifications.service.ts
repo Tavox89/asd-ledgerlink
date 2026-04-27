@@ -22,6 +22,7 @@ import {
   type ExactAuthorizationSpec,
   type VerificationCandidateEmail,
 } from './exact-authorization';
+import { normalizeComparable } from '../email-processing/helpers';
 
 interface VerificationAutoRefreshResult {
   attempted: boolean;
@@ -30,6 +31,36 @@ interface VerificationAutoRefreshResult {
   processed: number;
 }
 
+export type VerificationMethod = 'zelle' | 'binance';
+
+interface VerificationFlowProfile {
+  method: VerificationMethod;
+  forcedBankName: string | null;
+  candidateFilter: (email: VerificationCandidateEmail) => boolean;
+}
+
+const ZELLE_PROFILE: VerificationFlowProfile = {
+  method: 'zelle',
+  forcedBankName: null,
+  candidateFilter: () => true,
+};
+
+const BINANCE_PROFILE: VerificationFlowProfile = {
+  method: 'binance',
+  forcedBankName: 'Binance',
+  candidateFilter: (email) => {
+    const parsed = email.parsedNotification;
+    if (!parsed) {
+      return false;
+    }
+
+    return (
+      normalizeComparable(parsed.bankName) === 'binance' ||
+      normalizeComparable(parsed.parserName) === 'binanceparser'
+    );
+  },
+};
+
 function defaultAutoRefreshResult(): VerificationAutoRefreshResult {
   return {
     attempted: false,
@@ -37,6 +68,32 @@ function defaultAutoRefreshResult(): VerificationAutoRefreshResult {
     pulled: 0,
     processed: 0,
   };
+}
+
+function normalizeInputForProfile(
+  input: CreateManualVerificationInput,
+  profile: VerificationFlowProfile,
+): CreateManualVerificationInput {
+  if (profile.method !== 'binance') {
+    return input;
+  }
+
+  return {
+    ...input,
+    moneda: 'USD',
+    bancoEsperado: profile.forcedBankName,
+  };
+}
+
+function filterCandidatesForProfile(
+  candidateEmails: VerificationCandidateEmail[],
+  profile: VerificationFlowProfile,
+) {
+  return candidateEmails.filter(profile.candidateFilter);
+}
+
+function resolveProfileFromExpectedBank(expectedBank?: string | null): VerificationFlowProfile {
+  return normalizeComparable(expectedBank) === 'binance' ? BINANCE_PROFILE : ZELLE_PROFILE;
 }
 
 async function loadVerificationTransfer(id: string) {
@@ -228,6 +285,7 @@ function evaluateLookupMatches(
 async function loadVerificationCandidatesWithAutoRefresh(
   companySlug: string,
   spec: ExactAuthorizationSpec,
+  profile: VerificationFlowProfile = ZELLE_PROFILE,
 ) {
   if (!hasVerificationIdentity(spec)) {
     return {
@@ -238,11 +296,12 @@ async function loadVerificationCandidatesWithAutoRefresh(
   }
 
   const initial = await loadVerificationCandidateEmails(spec);
-  const initialExact = evaluateExactAuthorization(spec, initial.candidateEmails);
+  const initialCandidateEmails = filterCandidatesForProfile(initial.candidateEmails, profile);
+  const initialExact = evaluateExactAuthorization(spec, initialCandidateEmails);
 
   if (initialExact.authorized || initialExact.candidateCount > 0) {
     return {
-      candidateEmails: initial.candidateEmails,
+      candidateEmails: initialCandidateEmails,
       exact: initialExact,
       autoRefresh: defaultAutoRefreshResult(),
     };
@@ -253,7 +312,7 @@ async function loadVerificationCandidatesWithAutoRefresh(
 
     if (pullResult.pulled === 0 && pullResult.processed === 0) {
       return {
-        candidateEmails: initial.candidateEmails,
+        candidateEmails: initialCandidateEmails,
         exact: initialExact,
         autoRefresh: {
           attempted: true,
@@ -265,9 +324,10 @@ async function loadVerificationCandidatesWithAutoRefresh(
     }
 
     const refreshed = await loadVerificationCandidateEmails(spec);
+    const refreshedCandidateEmails = filterCandidatesForProfile(refreshed.candidateEmails, profile);
     return {
-      candidateEmails: refreshed.candidateEmails,
-      exact: evaluateExactAuthorization(spec, refreshed.candidateEmails),
+      candidateEmails: refreshedCandidateEmails,
+      exact: evaluateExactAuthorization(spec, refreshedCandidateEmails),
       autoRefresh: {
         attempted: true,
         status: 'retried',
@@ -285,7 +345,7 @@ async function loadVerificationCandidatesWithAutoRefresh(
     );
 
     return {
-      candidateEmails: initial.candidateEmails,
+      candidateEmails: initialCandidateEmails,
       exact: initialExact,
       autoRefresh: {
         attempted: true,
@@ -301,14 +361,17 @@ async function buildVerificationSummary(
   companySlug: string,
   transfer: NonNullable<Awaited<ReturnType<typeof loadVerificationTransfer>>>,
 ) {
+  const profile = resolveProfileFromExpectedBank(transfer.expectedBank);
   const spec = buildExactAuthorizationSpecFromTransfer(transfer);
   const { candidateEmails } = await loadVerificationCandidateEmails(spec);
-  const exact = evaluateExactAuthorization(spec, candidateEmails);
+  const filteredCandidateEmails = filterCandidatesForProfile(candidateEmails, profile);
+  const exact = evaluateExactAuthorization(spec, filteredCandidateEmails);
   const bestMatch = transfer.matches[0] ?? null;
 
   return {
     id: transfer.id,
     persisted: true,
+    verificationMethod: profile.method,
     transfer: serializeExpectedTransfer(transfer),
     status: transfer.status.toLowerCase(),
     authorized: exact.authorized,
@@ -330,10 +393,12 @@ async function buildVerificationSummary(
   };
 }
 
-export async function createManualVerification(
+async function createManualVerificationWithProfile(
   companySlug: string,
-  input: CreateManualVerificationInput,
+  rawInput: CreateManualVerificationInput,
+  profile: VerificationFlowProfile,
 ) {
+  const input = normalizeInputForProfile(rawInput, profile);
   const operationAt = dayjs(input.fechaOperacion);
   const transfer = await createTransfer(companySlug, {
     referenciaEsperada: input.referenciaEsperada ?? '',
@@ -355,17 +420,20 @@ export async function createManualVerification(
   return buildVerificationSummary(companySlug, hydrated);
 }
 
-export async function authorizeVerification(
+async function authorizeVerificationWithProfile(
   companySlug: string,
-  input: CreateManualVerificationInput,
+  rawInput: CreateManualVerificationInput,
+  profile: VerificationFlowProfile,
 ) {
   const company = await getCompanyBySlugOrThrow(companySlug);
+  const input = normalizeInputForProfile(rawInput, profile);
   const spec = buildExactAuthorizationSpec(company.id, input);
-  const { exact, autoRefresh } = await loadVerificationCandidatesWithAutoRefresh(companySlug, spec);
+  const { exact, autoRefresh } = await loadVerificationCandidatesWithAutoRefresh(companySlug, spec, profile);
 
   return {
     companyId: company.id,
     companySlug: company.slug,
+    verificationMethod: profile.method,
     authorized: exact.authorized,
     reasonCode: exact.reasonCode,
     candidateCount: exact.candidateCount,
@@ -375,17 +443,20 @@ export async function authorizeVerification(
   };
 }
 
-export async function lookupVerification(
+async function lookupVerificationWithProfile(
   companySlug: string,
-  input: CreateManualVerificationInput,
+  rawInput: CreateManualVerificationInput,
+  profile: VerificationFlowProfile,
 ) {
   const company = await getCompanyBySlugOrThrow(companySlug);
+  const input = normalizeInputForProfile(rawInput, profile);
   const lookup = buildLookupTransfer(company, input);
   const lookupCandidate = buildLookupCandidate(input, lookup);
   const spec = buildExactAuthorizationSpec(company.id, input);
   const { candidateEmails, exact, autoRefresh } = await loadVerificationCandidatesWithAutoRefresh(
     companySlug,
     spec,
+    profile,
   );
   const evaluated = evaluateLookupMatches(candidateEmails, lookupCandidate);
   const strongest = evaluated[0] ?? null;
@@ -395,6 +466,7 @@ export async function lookupVerification(
   return {
     id: 'lookup',
     persisted: false,
+    verificationMethod: profile.method,
     transfer: {
       ...lookup.transfer,
       status,
@@ -426,6 +498,48 @@ export async function lookupVerification(
     createdAt: lookup.transfer.createdAt,
     updatedAt: now,
   };
+}
+
+export async function createManualVerification(
+  companySlug: string,
+  input: CreateManualVerificationInput,
+) {
+  return createManualVerificationWithProfile(companySlug, input, ZELLE_PROFILE);
+}
+
+export async function createManualBinanceVerification(
+  companySlug: string,
+  input: CreateManualVerificationInput,
+) {
+  return createManualVerificationWithProfile(companySlug, input, BINANCE_PROFILE);
+}
+
+export async function authorizeVerification(
+  companySlug: string,
+  input: CreateManualVerificationInput,
+) {
+  return authorizeVerificationWithProfile(companySlug, input, ZELLE_PROFILE);
+}
+
+export async function authorizeBinanceVerification(
+  companySlug: string,
+  input: CreateManualVerificationInput,
+) {
+  return authorizeVerificationWithProfile(companySlug, input, BINANCE_PROFILE);
+}
+
+export async function lookupVerification(
+  companySlug: string,
+  input: CreateManualVerificationInput,
+) {
+  return lookupVerificationWithProfile(companySlug, input, ZELLE_PROFILE);
+}
+
+export async function lookupBinanceVerification(
+  companySlug: string,
+  input: CreateManualVerificationInput,
+) {
+  return lookupVerificationWithProfile(companySlug, input, BINANCE_PROFILE);
 }
 
 export async function listVerifications(companySlug: string) {

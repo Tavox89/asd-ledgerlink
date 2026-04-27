@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { CreateManualVerificationInput } from '@ledgerlink/shared';
+import { Prisma } from '@prisma/client';
 
 const loadVerificationCandidateEmails = vi.fn();
 const evaluateExactAuthorization = vi.fn();
@@ -37,6 +38,47 @@ function buildInput(overrides: Partial<CreateManualVerificationInput> = {}): Cre
     cuentaDestinoUltimos4: null,
     nombreClienteOpcional: null,
     notas: null,
+    ...overrides,
+  };
+}
+
+function buildCandidateEmail(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'email-1',
+    gmailMessageId: 'gmail-email-1',
+    senderMatchType: 'EMAIL',
+    fromAddress: 'donotreply@binance.com',
+    subject: 'You received an incoming transfer',
+    internalDate: new Date('2026-04-26T22:36:08.000Z'),
+    receivedAt: new Date('2026-04-26T22:36:20.000Z'),
+    authenticityStatus: 'HIGH',
+    authScore: 95,
+    authenticityFlags: {
+      riskFlags: [],
+      flags: {
+        sender_allowed: true,
+      },
+    },
+    parsedNotification: {
+      id: 'parsed-1',
+      inboundEmailId: 'email-1',
+      parserName: 'binance-parser',
+      bankName: 'Binance',
+      reference: '428221485342556160',
+      amount: new Prisma.Decimal(5),
+      currency: 'USD',
+      transferAt: new Date('2026-04-26T22:36:08.000Z'),
+      sender: 'donotreply@binance.com',
+      subject: 'You received an incoming transfer',
+      destinationAccountLast4: null,
+      originatorName: 'Edelynr',
+      confidenceScore: 90,
+      extractedData: {
+        assetSymbol: 'USDT',
+      },
+      createdAt: new Date('2026-04-26T22:36:20.000Z'),
+      updatedAt: new Date('2026-04-26T22:36:20.000Z'),
+    },
     ...overrides,
   };
 }
@@ -224,5 +266,79 @@ describe('verification service auto-refresh', () => {
       pulled: 0,
       processed: 0,
     });
+  });
+
+  it('filters candidate evidence to Binance-only emails for Binance authorization', async () => {
+    const { authorizeBinanceVerification } = await import('./verifications.service');
+
+    const binanceCandidate = buildCandidateEmail();
+    const zelleCandidate = buildCandidateEmail({
+      id: 'email-zelle-1',
+      gmailMessageId: 'gmail-zelle-1',
+      subject: 'Notification - GUILLERMO DIAZ ORTIZ sent you $10.00.',
+      fromAddress: 'donotreply@amerantbank.com',
+      parsedNotification: {
+        id: 'parsed-zelle-1',
+        inboundEmailId: 'email-zelle-1',
+        parserName: 'generic-bank-parser',
+        bankName: 'Banco de Venezuela',
+        reference: '760045800',
+        amount: new Prisma.Decimal(10),
+        currency: 'USD',
+        transferAt: new Date('2026-04-26T22:36:08.000Z'),
+        sender: 'donotreply@amerantbank.com',
+        subject: 'Notification - GUILLERMO DIAZ ORTIZ sent you $10.00.',
+        destinationAccountLast4: null,
+        originatorName: 'GUILLERMO DIAZ ORTIZ',
+        confidenceScore: 88,
+        extractedData: {},
+        createdAt: new Date('2026-04-26T22:36:20.000Z'),
+        updatedAt: new Date('2026-04-26T22:36:20.000Z'),
+      },
+    });
+
+    loadVerificationCandidateEmails.mockResolvedValue({
+      window: {
+        operationAt: new Date('2026-04-26T22:36:08.000Z'),
+        expectedWindowFrom: new Date('2026-04-26T19:36:08.000Z'),
+        expectedWindowTo: new Date('2026-04-27T01:36:08.000Z'),
+      },
+      candidateEmails: [binanceCandidate, zelleCandidate],
+    });
+
+    evaluateExactAuthorization.mockReturnValue({
+      authorized: true,
+      reasonCode: 'authorized',
+      candidateCount: 1,
+      senderMatchType: 'email',
+      evidence: {
+        id: 'email-1',
+        gmailMessageId: 'gmail-email-1',
+        senderMatchType: 'email',
+      },
+      strongestEmail: null,
+      strongestAuthStatus: 'high',
+      strongestAuthScore: 95,
+      officialSenderMatched: true,
+      riskFlags: [],
+      candidateEmails: [binanceCandidate],
+    });
+
+    const result = await authorizeBinanceVerification(
+      'default',
+      buildInput({
+        referenciaEsperada: '428221485342556160',
+        montoEsperado: 5,
+        moneda: 'USD',
+        bancoEsperado: null,
+        nombreClienteOpcional: 'Edelynr',
+        fechaOperacion: '2026-04-26T22:36:08.000Z',
+      }),
+    );
+
+    expect(evaluateExactAuthorization).toHaveBeenCalledWith(expect.anything(), [binanceCandidate]);
+    expect(pullGmailPubSubMessages).not.toHaveBeenCalled();
+    expect(result.verificationMethod).toBe('binance');
+    expect(result.authorized).toBe(true);
   });
 });

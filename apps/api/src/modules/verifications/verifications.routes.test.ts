@@ -7,8 +7,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { errorHandler } from '../../middleware/error-handler';
 
 const authorizeVerification = vi.fn();
+const authorizeBinanceVerification = vi.fn();
 const lookupVerification = vi.fn();
+const lookupBinanceVerification = vi.fn();
 const createManualVerification = vi.fn();
+const createManualBinanceVerification = vi.fn();
 const listVerifications = vi.fn();
 const getVerificationById = vi.fn();
 const confirmVerification = vi.fn();
@@ -22,8 +25,11 @@ const prismaMock = {
 
 vi.mock('./verifications.service', () => ({
   authorizeVerification,
+  authorizeBinanceVerification,
   lookupVerification,
+  lookupBinanceVerification,
   createManualVerification,
+  createManualBinanceVerification,
   listVerifications,
   getVerificationById,
   confirmVerification,
@@ -44,6 +50,18 @@ const validPayload = {
   cuentaDestinoUltimos4: '4821',
   nombreClienteOpcional: 'CLUB SAMS CARACAS',
   notas: null,
+};
+
+const validBinancePayload = {
+  referenciaEsperada: '428221485342556160',
+  montoEsperado: 5,
+  moneda: 'USD',
+  fechaOperacion: '2026-04-26T22:36:08.000Z',
+  toleranciaMinutos: 180,
+  bancoEsperado: null,
+  cuentaDestinoUltimos4: null,
+  nombreClienteOpcional: 'Edelynr',
+  notas: 'Source: whatsapp',
 };
 
 describe('verification routes', () => {
@@ -221,6 +239,151 @@ describe('verification routes', () => {
       status: 'match_found',
       reasonCode: 'amount',
       authorized: false,
+    });
+  });
+
+  it('routes POST /verifications/binance/authorize through the Binance authorization service', async () => {
+    const { verificationsRouter } = await import('./verifications.routes');
+    const app = express();
+    app.use(express.json());
+    app.use(verificationsRouter);
+    app.use(errorHandler);
+
+    authorizeBinanceVerification.mockResolvedValue({
+      companyId: 'company-default',
+      companySlug: 'default',
+      verificationMethod: 'binance',
+      authorized: true,
+      reasonCode: 'authorized',
+      candidateCount: 1,
+      senderMatchType: 'email',
+      evidence: {
+        id: 'email-binance-1',
+        gmailMessageId: 'gmail-binance-1',
+        senderMatchType: 'email',
+      },
+      autoRefresh: { attempted: false, status: 'not_needed', pulled: 0, processed: 0 },
+    });
+
+    const response = await request(app).post('/verifications/binance/authorize').send(validBinancePayload);
+
+    expect(response.status).toBe(200);
+    expect(authorizeBinanceVerification).toHaveBeenCalledWith('default', validBinancePayload);
+    expect(response.body).toMatchObject({
+      verificationMethod: 'binance',
+      authorized: true,
+      reasonCode: 'authorized',
+    });
+  });
+
+  it('keeps POST /companies/:companySlug/verifications/binance/operator-lookup wired to the Binance operator summary flow', async () => {
+    const { verificationsRouter } = await import('./verifications.routes');
+    const app = express();
+    app.use(express.json());
+    app.use(verificationsRouter);
+    app.use(errorHandler);
+
+    lookupBinanceVerification.mockResolvedValue({
+      id: 'lookup-binance',
+      persisted: false,
+      verificationMethod: 'binance',
+      status: 'match_found',
+      authorized: true,
+      reasonCode: 'authorized',
+      senderMatchType: 'email',
+      candidateCount: 1,
+      evidence: null,
+      transfer: {
+        id: 'lookup-binance',
+        referenceExpected: '428221485342556160',
+        amountExpected: 5,
+        currency: 'USD',
+        expectedBank: 'Binance',
+        expectedWindowFrom: '2026-04-26T19:36:08.000Z',
+        expectedWindowTo: '2026-04-27T01:36:08.000Z',
+        destinationAccountLast4: null,
+        customerName: 'Edelynr',
+        notes: 'Source: whatsapp',
+        status: 'match_found',
+        matchCount: 1,
+      },
+      canTreatAsConfirmed: true,
+      bestMatch: null,
+      strongestEmail: null,
+      strongestAuthStatus: null,
+      strongestAuthScore: null,
+      officialSenderMatched: true,
+      riskFlags: [],
+      matchCount: 1,
+      autoRefresh: { attempted: false, status: 'not_needed', pulled: 0, processed: 0 },
+      createdAt: '2026-04-26T22:36:08.000Z',
+      updatedAt: '2026-04-26T22:36:08.000Z',
+    });
+
+    const response = await request(app)
+      .post('/companies/default/verifications/binance/operator-lookup')
+      .send(validBinancePayload);
+
+    expect(response.status).toBe(200);
+    expect(lookupBinanceVerification).toHaveBeenCalledWith('default', validBinancePayload);
+    expect(response.body).toMatchObject({
+      verificationMethod: 'binance',
+      authorized: true,
+      reasonCode: 'authorized',
+    });
+  });
+
+  it('creates registered Binance verification requests through the dedicated manual route', async () => {
+    const { verificationsRouter } = await import('./verifications.routes');
+    const app = express();
+    app.use(express.json());
+    app.use(verificationsRouter);
+    app.use(errorHandler);
+
+    createManualBinanceVerification.mockResolvedValue({
+      id: 'manual-binance-1',
+      persisted: true,
+      verificationMethod: 'binance',
+      status: 'pending',
+      authorized: false,
+      reasonCode: 'date',
+      senderMatchType: 'none',
+      candidateCount: 0,
+      evidence: null,
+      transfer: {
+        id: 'manual-binance-1',
+        referenceExpected: '428221485342556160',
+        amountExpected: 5,
+        currency: 'USD',
+        expectedBank: 'Binance',
+        expectedWindowFrom: '2026-04-26T19:36:08.000Z',
+        expectedWindowTo: '2026-04-27T01:36:08.000Z',
+        destinationAccountLast4: null,
+        customerName: 'Edelynr',
+        notes: 'Source: whatsapp',
+        status: 'pending',
+        matchCount: 0,
+      },
+      canTreatAsConfirmed: false,
+      bestMatch: null,
+      strongestEmail: null,
+      strongestAuthStatus: null,
+      strongestAuthScore: null,
+      officialSenderMatched: 'unknown',
+      riskFlags: [],
+      matchCount: 0,
+      autoRefresh: { attempted: false, status: 'not_needed', pulled: 0, processed: 0 },
+      createdAt: '2026-04-26T22:36:08.000Z',
+      updatedAt: '2026-04-26T22:36:08.000Z',
+    });
+
+    const response = await request(app).post('/verifications/binance/manual').send(validBinancePayload);
+
+    expect(response.status).toBe(201);
+    expect(createManualBinanceVerification).toHaveBeenCalledWith('default', validBinancePayload);
+    expect(response.body).toMatchObject({
+      verificationMethod: 'binance',
+      status: 'pending',
     });
   });
 

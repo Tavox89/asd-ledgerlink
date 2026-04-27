@@ -35,6 +35,18 @@ function displayReference(value?: string | null) {
   return value?.trim() ? value : 'Sin referencia';
 }
 
+type VerificationFormMode = 'zelle' | 'binance';
+
+function methodLabel(method: VerificationFormMode | string | null | undefined) {
+  return method === 'binance' ? 'Binance' : 'Zelle';
+}
+
+function inferVerificationMethod(result: VerificationRecord | null): VerificationFormMode {
+  return result?.verificationMethod === 'binance' || result?.transfer.expectedBank === 'Binance'
+    ? 'binance'
+    : 'zelle';
+}
+
 function renderAutoRefreshMessage(result: VerificationRecord) {
   const autoRefresh = result.autoRefresh;
   if (!autoRefresh?.attempted) {
@@ -57,6 +69,7 @@ export function ManualVerificationView() {
   const companySlug = useCompanySlug();
   const queryClient = useQueryClient();
   const [latestResult, setLatestResult] = useState<VerificationRecord | null>(null);
+  const [mode, setMode] = useState<VerificationFormMode>('zelle');
   const [form, setForm] = useState({
     referenciaEsperada: '',
     montoEsperado: '',
@@ -68,6 +81,17 @@ export function ManualVerificationView() {
     nombreClienteOpcional: '',
     notas: '',
   });
+
+  const modeReferenceLabel = mode === 'binance' ? 'ID de orden' : 'Referencia';
+  const modeNameLabel = mode === 'binance' ? 'Nombre del pagador' : 'Nombre de quien envía';
+  const operatorLookupPath =
+    mode === 'binance'
+      ? `/companies/${companySlug}/verifications/binance/operator-lookup`
+      : `/companies/${companySlug}/verifications/operator-lookup`;
+  const createManualPath =
+    mode === 'binance'
+      ? `/companies/${companySlug}/verifications/binance/manual`
+      : `/companies/${companySlug}/verifications/manual`;
 
   const query = useQuery({
     queryKey: ['verifications', companySlug],
@@ -83,13 +107,13 @@ export function ManualVerificationView() {
         throw new Error('Debes informar referencia, nombre o ambos.');
       }
 
-      return api.post<VerificationRecord>(`/companies/${companySlug}/verifications/operator-lookup`, {
+      return api.post<VerificationRecord>(operatorLookupPath, {
         referenciaEsperada: form.referenciaEsperada,
         montoEsperado: form.montoEsperado,
-        moneda: form.moneda,
+        moneda: mode === 'binance' ? 'USD' : form.moneda,
         fechaOperacion: new Date(form.fechaOperacion).toISOString(),
         toleranciaMinutos: Number(form.toleranciaMinutos),
-        bancoEsperado: toNullableString(form.bancoEsperado),
+        bancoEsperado: mode === 'binance' ? null : toNullableString(form.bancoEsperado),
         cuentaDestinoUltimos4: toNullableString(form.cuentaDestinoUltimos4),
         nombreClienteOpcional: toNullableString(form.nombreClienteOpcional),
         notas: toNullableString(form.notas),
@@ -115,13 +139,13 @@ export function ManualVerificationView() {
         throw new Error('Debes informar referencia, nombre o ambos.');
       }
 
-      return api.post<VerificationRecord>(`/companies/${companySlug}/verifications/manual`, {
+      return api.post<VerificationRecord>(createManualPath, {
         referenciaEsperada: form.referenciaEsperada,
         montoEsperado: form.montoEsperado,
-        moneda: form.moneda,
+        moneda: mode === 'binance' ? 'USD' : form.moneda,
         fechaOperacion: new Date(form.fechaOperacion).toISOString(),
         toleranciaMinutos: Number(form.toleranciaMinutos),
-        bancoEsperado: toNullableString(form.bancoEsperado),
+        bancoEsperado: mode === 'binance' ? null : toNullableString(form.bancoEsperado),
         cuentaDestinoUltimos4: toNullableString(form.cuentaDestinoUltimos4),
         nombreClienteOpcional: toNullableString(form.nombreClienteOpcional),
         notas: toNullableString(form.notas),
@@ -162,11 +186,42 @@ export function ManualVerificationView() {
         <Card>
           <CardHeader>
             <CardTitle>Entrada de verificación</CardTitle>
-            <CardDescription>Usa la misma señal que enviaría un operador o un API externo después de que el correo de pago ya llegó: referencia, nombre o ambos, más monto y fecha.</CardDescription>
+            <CardDescription>
+              Usa la misma señal que enviaría un operador o un API externo después de que el correo
+              de pago ya llegó. Zelle y Binance comparten esta vista, pero se validan con evidencia
+              distinta según el método elegido.
+            </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
+            <div className="md:col-span-2 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant={mode === 'zelle' ? 'default' : 'outline'}
+                onClick={() => {
+                  setMode('zelle');
+                  setLatestResult(null);
+                }}
+              >
+                Zelle
+              </Button>
+              <Button
+                type="button"
+                variant={mode === 'binance' ? 'default' : 'outline'}
+                onClick={() => {
+                  setMode('binance');
+                  setLatestResult(null);
+                  setForm((current) => ({
+                    ...current,
+                    moneda: 'USD',
+                    bancoEsperado: '',
+                  }));
+                }}
+              >
+                Binance
+              </Button>
+            </div>
             <Input
-              placeholder="Referencia (opcional)"
+              placeholder={`${modeReferenceLabel} (opcional)`}
               value={form.referenciaEsperada}
               onChange={(event) => setForm((current) => ({ ...current, referenciaEsperada: event.target.value }))}
             />
@@ -177,14 +232,19 @@ export function ManualVerificationView() {
             />
             <Input
               placeholder="Moneda"
-              value={form.moneda}
+              value={mode === 'binance' ? 'USD' : form.moneda}
+              disabled={mode === 'binance'}
               onChange={(event) => setForm((current) => ({ ...current, moneda: event.target.value.toUpperCase() }))}
             />
-            <Input
-              placeholder="Banco esperado (opcional)"
-              value={form.bancoEsperado}
-              onChange={(event) => setForm((current) => ({ ...current, bancoEsperado: event.target.value }))}
-            />
+            {mode === 'binance' ? (
+              <Input value="Binance" disabled />
+            ) : (
+              <Input
+                placeholder="Banco esperado (opcional)"
+                value={form.bancoEsperado}
+                onChange={(event) => setForm((current) => ({ ...current, bancoEsperado: event.target.value }))}
+              />
+            )}
             <Input
               type="datetime-local"
               value={form.fechaOperacion}
@@ -201,7 +261,7 @@ export function ManualVerificationView() {
               onChange={(event) => setForm((current) => ({ ...current, cuentaDestinoUltimos4: event.target.value }))}
             />
             <Input
-              placeholder="Nombre de quien envía"
+              placeholder={`${modeNameLabel} (opcional)`}
               value={form.nombreClienteOpcional}
               onChange={(event) => setForm((current) => ({ ...current, nombreClienteOpcional: event.target.value }))}
             />
@@ -269,6 +329,7 @@ export function ManualVerificationView() {
                     </span>
                   </div>
                   <p className="mt-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                    {methodLabel(inferVerificationMethod(latestResult))} ·{' '}
                     {latestResult.persisted ? 'Solicitud registrada' : 'Consulta en vivo del buzón'}
                   </p>
                   <p className="mt-3 text-lg font-semibold">
@@ -428,6 +489,7 @@ export function ManualVerificationView() {
                     <TD>
                       <div className="font-semibold">{displayReference(item.transfer.referenceExpected)}</div>
                       <div className="text-muted-foreground">{item.transfer.customerName ?? 'Sin nombre'}</div>
+                      <div className="text-muted-foreground">{methodLabel(inferVerificationMethod(item))}</div>
                       <div className="text-muted-foreground">{item.transfer.expectedBank}</div>
                     </TD>
                     <TD>{formatMoney(item.transfer.amountExpected, item.transfer.currency)}</TD>

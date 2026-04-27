@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const writeAuditLog = vi.fn();
 const authorizeVerification = vi.fn();
+const authorizeBinanceVerification = vi.fn();
 const extractVerificationFromImage = vi.fn();
 const sendTwilioWhatsAppReply = vi.fn();
 
@@ -56,6 +57,7 @@ vi.mock('../../lib/serializers', () => ({
 
 vi.mock('../verifications/verifications.service', () => ({
   authorizeVerification,
+  authorizeBinanceVerification,
 }));
 
 vi.mock('./whatsapp.vision', () => ({
@@ -122,6 +124,7 @@ describe('whatsapp service', () => {
     prismaMock.whatsAppVerificationAttempt.findFirst.mockResolvedValue(null);
     prismaMock.whatsAppVerificationAttempt.update.mockResolvedValue(buildAttempt());
     extractVerificationFromImage.mockResolvedValue(null);
+    authorizeBinanceVerification.mockReset();
     sendTwilioWhatsAppReply.mockResolvedValue({
       sid: 'SM-OUTBOUND',
       from: 'whatsapp:+10000000000',
@@ -248,6 +251,47 @@ describe('whatsapp service', () => {
     expect(result.replyText).toContain('Si, pago valido');
   });
 
+  it('routes Binance evidence through the shared WhatsApp channel without touching the Zelle verifier', async () => {
+    const { processIncomingTwilioWebhook } = await import('./whatsapp.service');
+
+    authorizeBinanceVerification.mockResolvedValueOnce({
+      companyId: 'company-default',
+      companySlug: 'default',
+      verificationMethod: 'binance',
+      authorized: true,
+      reasonCode: 'authorized',
+      candidateCount: 1,
+      senderMatchType: 'email',
+      evidence: { gmailMessageId: 'gmail-binance-1' },
+      strongestEmail: null,
+      strongestAuthStatus: 'high',
+      strongestAuthScore: 95,
+      officialSenderMatched: true,
+      riskFlags: [],
+      autoRefresh: { attempted: false, status: 'not_needed', pulled: 0, processed: 0 },
+    });
+
+    const result = await processIncomingTwilioWebhook({
+      From: 'whatsapp:+584121112233',
+      To: 'whatsapp:+10000000000',
+      Body: 'Pago 5 USDT exitosamente. Alias: Gedcorp. ID de orden 428221485342556160. Fecha 2026-04-26 22:36',
+      MessageSid: 'SM-BINANCE',
+      NumMedia: '0',
+    });
+
+    expect(result.status).toBe('authorized');
+    expect(authorizeVerification).not.toHaveBeenCalled();
+    expect(authorizeBinanceVerification).toHaveBeenCalledTimes(1);
+    expect(authorizeBinanceVerification.mock.calls[0]?.[0]).toBe('default');
+    expect(authorizeBinanceVerification.mock.calls[0]?.[1]).toMatchObject({
+      referenciaEsperada: '428221485342556160',
+      montoEsperado: 5,
+      moneda: 'USD',
+      bancoEsperado: 'Binance',
+    });
+    expect(result.replyText).toContain('Binance.');
+  });
+
   it('uses a whole-day strategy when only the extracted date is available', async () => {
     const { processIncomingTwilioWebhook } = await import('./whatsapp.service');
 
@@ -325,6 +369,7 @@ describe('whatsapp service', () => {
     expect(result.status).toBe('incomplete');
     expect(result.replyText).toContain('no pude identificar un comprobante');
     expect(authorizeVerification).not.toHaveBeenCalled();
+    expect(authorizeBinanceVerification).not.toHaveBeenCalled();
     expect(prismaMock.whatsAppVerificationAttempt.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -412,6 +457,7 @@ describe('whatsapp service', () => {
 
     expect(sendTwilioWhatsAppReply).not.toHaveBeenCalled();
     expect(authorizeVerification).not.toHaveBeenCalled();
+    expect(authorizeBinanceVerification).not.toHaveBeenCalled();
     expect(xml).toContain('<Response></Response>');
   });
 });

@@ -77,6 +77,8 @@ The matching engine scores these signals:
 - `/verifications/lookup` remains the rich operator summary.
 - `/verifications/authorize` is the binary API used by external systems to decide whether a transaction may be closed.
 - Authorization is stricter than general matching: it requires sender allowlist pass, exact reference, exact amount, and the inbox arrival timestamp (`internalDate`, with stored `receivedAt` as fallback) within the expected window.
+- Binance V1 runs as a parallel exact-authorization flow with its own endpoints (`/verifications/binance/*`) and evidence filter (`bankName/parserName = Binance`), but it reuses the same payload contract and decision shape as Zelle.
+- The shared WhatsApp ingress classifies each inbound message or capture as `zelle`, `binance`, or `unknown` before calling the corresponding verification flow.
 
 ## Architectural decisions
 

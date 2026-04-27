@@ -1,10 +1,11 @@
 import type { NormalizedInboundEmail } from '../types';
 
 import { banescoParser } from './banesco.parser';
+import { binanceParser } from './binance.parser';
 import { genericBankParser } from './generic-bank.parser';
 import { mercantilParser } from './mercantil.parser';
 
-const parserRegistry = [banescoParser, mercantilParser, genericBankParser];
+const parserRegistry = [binanceParser, banescoParser, mercantilParser, genericBankParser];
 
 export function parseBankNotification(email: NormalizedInboundEmail) {
   const selectedParser = parserRegistry

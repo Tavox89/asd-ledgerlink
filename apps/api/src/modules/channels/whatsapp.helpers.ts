@@ -28,6 +28,7 @@ export interface WhatsAppMediaAttachment {
 export interface TextExtractionResult {
   reference: string | null;
   customerName: string | null;
+  alias: string | null;
   amount: number | null;
   currency: CurrencyCode | null;
   bank: string | null;
@@ -41,6 +42,7 @@ export interface VisionExtractionResult {
   isTransferProof: boolean;
   reference: string | null;
   customerName: string | null;
+  alias?: string | null;
   amount: number | null;
   currency: CurrencyCode | null;
   date: string | null;
@@ -54,6 +56,7 @@ export interface VisionExtractionResult {
 export interface CollectedVerificationInput {
   reference: string | null;
   customerName: string | null;
+  alias: string | null;
   amount: number | null;
   currency: CurrencyCode;
   currencySource: 'text' | 'image' | 'state' | 'default';
@@ -61,6 +64,8 @@ export interface CollectedVerificationInput {
   extractedDate: string | null;
   extractedTime: string | null;
 }
+
+export type VerificationPaymentMethod = 'zelle' | 'binance' | 'unknown';
 
 export interface VerificationStrategyInput {
   code: 'verification_moment' | 'extracted_datetime' | 'extracted_date_day';
@@ -91,8 +96,17 @@ function zeroPad(value: number) {
 
 function normalizeCurrency(value?: string | null): CurrencyCode | null {
   const normalized = (value ?? '').trim().toUpperCase();
-  if (normalized === 'USD' || normalized === 'VES' || normalized === 'EUR' || normalized === 'COP') {
+  if (
+    normalized === 'USD' ||
+    normalized === 'VES' ||
+    normalized === 'EUR' ||
+    normalized === 'COP'
+  ) {
     return normalized;
+  }
+
+  if (normalized === 'USDT') {
+    return 'USD';
   }
 
   if (normalized === 'US$' || normalized === '$') {
@@ -107,7 +121,7 @@ function normalizeCurrency(value?: string | null): CurrencyCode | null {
 
 function extractStructuredAmount(text: string) {
   const labeledPattern =
-    /monto[:\s-]*(?:(USD|US\$|\$|VES|BS\.?|BOL[ÍI]VARES?|EUR|COP)\s*)?([\d.,]+)(?:\s*(USD|US\$|\$|VES|BS\.?|BOL[ÍI]VARES?|EUR|COP))?/i;
+    /monto[:\s-]*(?:(USD|US\$|\$|USDT|VES|BS\.?|BOL[ÍI]VARES?|EUR|COP)\s*)?([\d.,]+)(?:\s*(USD|US\$|\$|USDT|VES|BS\.?|BOL[ÍI]VARES?|EUR|COP))?/i;
   const labeledMatch = text.match(labeledPattern);
   if (labeledMatch) {
     const [, leadingCurrency, rawAmount, trailingCurrency] = labeledMatch;
@@ -125,6 +139,11 @@ function cleanCustomerName(value: string) {
     .replace(/[.,;:]+$/g, '')
     .replace(/\s+\b(?:from|checking|savings|today|fecha|date|monto|amount|referencia|ref)\b.*$/i, '')
     .trim();
+}
+
+function extractAlias(text: string) {
+  const match = text.match(/alias[:\s-]*([A-Za-zÁÉÍÓÚÑáéíóúñ0-9_.-]{2,})/i);
+  return match?.[1] ? normalizeDisplayText(match[1]).replace(/[.,;:]+$/g, '') : null;
 }
 
 function extractCustomerName(text: string) {
@@ -287,6 +306,7 @@ export function extractVerificationFromText(
     return {
       reference: null,
       customerName: null,
+      alias: null,
       amount: null,
       currency: null,
       bank: null,
@@ -300,6 +320,7 @@ export function extractVerificationFromText(
   const amountSnapshot = extractStructuredAmount(normalizedText);
   const { date, time } = extractDateCandidate(normalizedText, referenceDate);
   const customerName = extractCustomerName(normalizedText);
+  const alias = extractAlias(normalizedText);
 
   let confidence = 20;
   if (amountSnapshot.amount !== null) confidence += 20;
@@ -312,6 +333,7 @@ export function extractVerificationFromText(
   return {
     reference: extractReference(normalizedText),
     customerName,
+    alias,
     amount: amountSnapshot.amount,
     currency: amountSnapshot.currency,
     bank: inferBankName(normalizedText, null),
@@ -339,6 +361,12 @@ export function mergeCollectedVerificationInput(
     textExtraction.customerName ??
     imageFields?.customerName ??
     existingState?.customerName ??
+    null;
+
+  const alias =
+    textExtraction.alias ??
+    imageFields?.alias ??
+    existingState?.alias ??
     null;
 
   const amount =
@@ -383,6 +411,7 @@ export function mergeCollectedVerificationInput(
   return {
     reference,
     customerName,
+    alias,
     amount,
     currency: explicitCurrency ?? 'USD',
     currencySource,
@@ -390,6 +419,50 @@ export function mergeCollectedVerificationInput(
     extractedDate,
     extractedTime,
   };
+}
+
+export function detectVerificationMethod(input: {
+  textExtraction: TextExtractionResult;
+  imageExtraction: VisionExtractionResult | null;
+  mergedInput: CollectedVerificationInput;
+}): VerificationPaymentMethod {
+  const bankSignal = normalizeDisplayText(
+    [
+      input.textExtraction.bank,
+      input.imageExtraction?.bank,
+      input.mergedInput.bank,
+    ]
+      .filter(Boolean)
+      .join(' '),
+  ).toLowerCase();
+  const rawSignal = normalizeDisplayText(
+    [
+      input.textExtraction.rawText,
+      input.imageExtraction?.rawText,
+      input.mergedInput.alias,
+      input.imageExtraction?.alias,
+    ]
+      .filter(Boolean)
+      .join(' '),
+  ).toLowerCase();
+
+  if (
+    bankSignal.includes('binance') ||
+    /\bbinance\b|\busdt\b|\border\s*id\b|\bid\s*de\s*orden\b|\bcuenta\s*spot\b|\balias\b/i.test(
+      rawSignal,
+    )
+  ) {
+    return 'binance';
+  }
+
+  if (
+    bankSignal.length > 0 ||
+    /\bref\b|\breferencia\b|\breference\b|\breference\s*id\b|\benrolled as\b/i.test(rawSignal)
+  ) {
+    return 'zelle';
+  }
+
+  return 'unknown';
 }
 
 export function getMissingVerificationFields(input: CollectedVerificationInput) {
@@ -489,6 +562,14 @@ export function buildMissingFieldsReply(missingFields: string[]) {
   return `Necesito ${missingFields.join(' y ')} para verificar el pago. Puedes enviarme el comprobante o escribir esos datos directamente.`;
 }
 
+export function buildUnknownMethodReply() {
+  return 'Necesito saber si el pago es Zelle o Binance, o ver un comprobante más claro para continuar.';
+}
+
+function methodLabel(method: Exclude<VerificationPaymentMethod, 'unknown'>) {
+  return method === 'binance' ? 'Binance' : 'Zelle';
+}
+
 export function translateVerificationReason(reasonCode: VerificationReasonCode) {
   switch (reasonCode) {
     case 'sender':
@@ -508,16 +589,21 @@ export function translateVerificationReason(reasonCode: VerificationReasonCode) 
   }
 }
 
-export function buildAuthorizedReply(input: CollectedVerificationInput, strategyLabel: string) {
-  return `Si, pago valido.\nNombre: ${input.customerName ?? 'sin nombre'}\nReferencia: ${input.reference ?? 'sin referencia'}\nMonto: ${formatCurrency(input.amount ?? 0, input.currency)}\nFecha usada: ${strategyLabel}.`;
+export function buildAuthorizedReply(
+  method: Exclude<VerificationPaymentMethod, 'unknown'>,
+  input: CollectedVerificationInput,
+  strategyLabel: string,
+) {
+  return `${methodLabel(method)}.\nSi, pago valido.\nNombre: ${input.customerName ?? 'sin nombre'}\nReferencia: ${input.reference ?? 'sin referencia'}\nMonto: ${formatCurrency(input.amount ?? 0, input.currency)}\nFecha usada: ${strategyLabel}.`;
 }
 
 export function buildBlockedReply(
+  method: Exclude<VerificationPaymentMethod, 'unknown'>,
   input: CollectedVerificationInput,
   reasonCode: VerificationReasonCode,
   strategyLabel: string,
 ) {
-  return `No, pago bloqueado.\nNombre: ${input.customerName ?? 'sin nombre'}\nReferencia: ${input.reference ?? 'sin referencia'}\nMonto: ${formatCurrency(input.amount ?? 0, input.currency)}\nFecha usada: ${strategyLabel}\nMotivo: ${translateVerificationReason(reasonCode)}.`;
+  return `${methodLabel(method)}.\nNo, pago bloqueado.\nNombre: ${input.customerName ?? 'sin nombre'}\nReferencia: ${input.reference ?? 'sin referencia'}\nMonto: ${formatCurrency(input.amount ?? 0, input.currency)}\nFecha usada: ${strategyLabel}\nMotivo: ${translateVerificationReason(reasonCode)}.`;
 }
 
 export function buildUnauthorizedPhoneReply() {
@@ -547,8 +633,11 @@ export function buildTwimlResponse(message?: string | null) {
   return `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escaped}</Message></Response>`;
 }
 
-export function buildVerificationNotes(strategy: VerificationStrategyInput) {
-  return `WhatsApp pilot (${strategy.code})`;
+export function buildVerificationNotes(
+  strategy: VerificationStrategyInput,
+  method: Exclude<VerificationPaymentMethod, 'unknown'>,
+) {
+  return `WhatsApp pilot (${method}:${strategy.code})`;
 }
 
 export function formatStrategyTimestamp(strategy: VerificationStrategyInput) {

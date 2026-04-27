@@ -72,4 +72,38 @@ describe('bank notification parser registry', () => {
 
     expect(parsed.reference).toBe('760045800');
   });
+
+  it('extracts Binance incoming transfer evidence with order id, UTC time, and USDT amount normalized to USD', () => {
+    const email: NormalizedInboundEmail = {
+      gmailMessageId: 'binance-incoming-1',
+      gmailThreadId: 'thread-binance-incoming-1',
+      historyId: '9003',
+      snippet: 'You received an incoming transfer',
+      internalDate: new Date('2026-04-26T22:36:08.000Z'),
+      subject: 'You received an incoming transfer',
+      fromAddress: 'do-not-reply@directmail2.binance.com',
+      toAddress: 'ordenesdecompramayorclub@gmail.com',
+      replyToAddress: 'do-not-reply@directmail2.binance.com',
+      returnPathAddress: 'do-not-reply@directmail2.binance.com',
+      messageIdHeader: '<binance-incoming-1@binance.com>',
+      bodyText:
+        'BINANCE\nYou received an incoming transfer\nTime: 2026-04-26 22:36:08(UTC)\nFrom: Edelynr\nAmount: 5 USDT\nOrder ID: 428221485342556160',
+      bodyHtml: null,
+      headers: [],
+      headerMap: {},
+    };
+
+    const parsed = parseBankNotification(email);
+
+    expect(parsed?.parserName).toBe('binance-parser');
+    expect(parsed?.bankName).toBe('Binance');
+    expect(parsed?.reference).toBe('428221485342556160');
+    expect(parsed?.amount).toBe(5);
+    expect(parsed?.currency).toBe('USD');
+    expect(parsed?.originatorName).toBe('Edelynr');
+    expect(parsed?.transferAt?.toISOString()).toBe('2026-04-26T22:36:08.000Z');
+    expect(parsed?.extractedData).toMatchObject({
+      assetSymbol: 'USDT',
+    });
+  });
 });

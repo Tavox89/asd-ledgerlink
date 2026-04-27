@@ -10,11 +10,14 @@ import { asyncHandler, validateRequest } from '../../lib/http';
 import { requireCompanyIntegrationScope } from '../../middleware/integration-auth';
 import { DEFAULT_COMPANY_SLUG } from '../companies/companies.service';
 import {
+  authorizeBinanceVerification,
   authorizeVerification,
   confirmVerification,
+  createManualBinanceVerification,
   createManualVerification,
   getVerificationById,
   listVerifications,
+  lookupBinanceVerification,
   lookupVerification,
   rejectVerification,
 } from './verifications.service';
@@ -33,6 +36,31 @@ verificationsRouter.get(
   validateRequest({ params: companySlugParamSchema }),
   asyncHandler(async (req, res) => {
     res.json(await listVerifications(req.params.companySlug));
+  }),
+);
+
+verificationsRouter.post(
+  '/verifications/binance/lookup',
+  validateRequest({ body: createManualVerificationSchema }),
+  asyncHandler(async (req, res) => {
+    res.json(await lookupBinanceVerification(DEFAULT_COMPANY_SLUG, req.body));
+  }),
+);
+
+verificationsRouter.post(
+  '/companies/:companySlug/verifications/binance/lookup',
+  validateRequest({ params: companySlugParamSchema, body: createManualVerificationSchema }),
+  requireCompanyIntegrationScope('verifications:lookup'),
+  asyncHandler(async (req, res) => {
+    res.json(await lookupBinanceVerification(req.params.companySlug, req.body));
+  }),
+);
+
+verificationsRouter.post(
+  '/companies/:companySlug/verifications/binance/operator-lookup',
+  validateRequest({ params: companySlugParamSchema, body: createManualVerificationSchema }),
+  asyncHandler(async (req, res) => {
+    res.json(await lookupBinanceVerification(req.params.companySlug, req.body));
   }),
 );
 
@@ -62,6 +90,23 @@ verificationsRouter.post(
 );
 
 verificationsRouter.post(
+  '/verifications/binance/authorize',
+  validateRequest({ body: createManualVerificationSchema }),
+  asyncHandler(async (req, res) => {
+    res.json(await authorizeBinanceVerification(DEFAULT_COMPANY_SLUG, req.body));
+  }),
+);
+
+verificationsRouter.post(
+  '/companies/:companySlug/verifications/binance/authorize',
+  validateRequest({ params: companySlugParamSchema, body: createManualVerificationSchema }),
+  requireCompanyIntegrationScope('verifications:authorize'),
+  asyncHandler(async (req, res) => {
+    res.json(await authorizeBinanceVerification(req.params.companySlug, req.body));
+  }),
+);
+
+verificationsRouter.post(
   '/verifications/authorize',
   validateRequest({ body: createManualVerificationSchema }),
   asyncHandler(async (req, res) => {
@@ -75,6 +120,22 @@ verificationsRouter.post(
   requireCompanyIntegrationScope('verifications:authorize'),
   asyncHandler(async (req, res) => {
     res.json(await authorizeVerification(req.params.companySlug, req.body));
+  }),
+);
+
+verificationsRouter.post(
+  '/verifications/binance/manual',
+  validateRequest({ body: createManualVerificationSchema }),
+  asyncHandler(async (req, res) => {
+    res.status(201).json(await createManualBinanceVerification(DEFAULT_COMPANY_SLUG, req.body));
+  }),
+);
+
+verificationsRouter.post(
+  '/companies/:companySlug/verifications/binance/manual',
+  validateRequest({ params: companySlugParamSchema, body: createManualVerificationSchema }),
+  asyncHandler(async (req, res) => {
+    res.status(201).json(await createManualBinanceVerification(req.params.companySlug, req.body));
   }),
 );
 

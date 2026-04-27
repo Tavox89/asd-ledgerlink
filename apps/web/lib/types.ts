@@ -261,6 +261,7 @@ export interface AllowedBankSenderRecord {
 export interface VerificationRecord {
   id: string;
   persisted: boolean;
+  verificationMethod?: string;
   transfer: TransferRecord;
   status: string;
   authorized: boolean;
