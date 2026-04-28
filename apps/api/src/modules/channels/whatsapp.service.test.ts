@@ -301,6 +301,175 @@ describe('whatsapp service', () => {
     expect(result.replyText).toContain('Binance.');
   });
 
+  it('reports the detected Binance date when all date strategies are blocked', async () => {
+    const { processIncomingTwilioWebhook } = await import('./whatsapp.service');
+
+    authorizeBinanceVerification
+      .mockResolvedValueOnce({
+        companyId: 'company-default',
+        companySlug: 'default',
+        verificationMethod: 'binance',
+        authorized: false,
+        reasonCode: 'date',
+        candidateCount: 0,
+        senderMatchType: 'none',
+        evidence: null,
+        binanceApi: {
+          checked: true,
+          configured: true,
+          transactionCount: 0,
+          matchedTransactionId: null,
+          matchMode: 'none',
+          dateStrategy: null,
+          evidence: null,
+        },
+        strongestEmail: null,
+        strongestAuthStatus: null,
+        strongestAuthScore: null,
+        officialSenderMatched: 'unknown',
+        riskFlags: [],
+        autoRefresh: { attempted: false, status: 'not_needed', pulled: 0, processed: 0 },
+      })
+      .mockResolvedValueOnce({
+        companyId: 'company-default',
+        companySlug: 'default',
+        verificationMethod: 'binance',
+        authorized: false,
+        reasonCode: 'date',
+        candidateCount: 0,
+        senderMatchType: 'none',
+        evidence: null,
+        binanceApi: {
+          checked: true,
+          configured: true,
+          transactionCount: 0,
+          matchedTransactionId: null,
+          matchMode: 'none',
+          dateStrategy: null,
+          evidence: null,
+        },
+        strongestEmail: null,
+        strongestAuthStatus: null,
+        strongestAuthScore: null,
+        officialSenderMatched: 'unknown',
+        riskFlags: [],
+        autoRefresh: { attempted: false, status: 'not_needed', pulled: 0, processed: 0 },
+      });
+
+    const result = await processIncomingTwilioWebhook({
+      From: 'whatsapp:+584121112233',
+      To: 'whatsapp:+10000000000',
+      Body: 'Binance ID de orden 428221485342556160 monto 5 USDT fecha 26 abril 2026',
+      MessageSid: 'SM-BINANCE-DATE-BLOCKED',
+      NumMedia: '0',
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(authorizeBinanceVerification).toHaveBeenCalledTimes(2);
+    expect(result.replyText).toContain('Fecha usada: dia detectado');
+    expect(result.replyText).not.toContain('Fecha usada: momento de verificacion');
+    expect(prismaMock.whatsAppConversation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'AWAITING_DETAILS',
+          pendingFields: ['fecha'],
+        }),
+      }),
+    );
+  });
+
+  it('keeps Binance payment data open so a later date reply can re-run verification', async () => {
+    const { processIncomingTwilioWebhook } = await import('./whatsapp.service');
+
+    prismaMock.whatsAppConversation.upsert.mockResolvedValue(
+      buildConversation({
+        status: 'AWAITING_DETAILS',
+        partialPayload: {
+          reference: '428221485342556160',
+          customerName: null,
+          alias: 'Gedcorp',
+          amount: 5,
+          currency: 'USD',
+          currencySource: 'image',
+          bank: 'Binance',
+          extractedDate: null,
+          extractedTime: null,
+        },
+        pendingFields: ['fecha'],
+      }),
+    );
+    authorizeBinanceVerification
+      .mockResolvedValueOnce({
+        companyId: 'company-default',
+        companySlug: 'default',
+        verificationMethod: 'binance',
+        authorized: false,
+        reasonCode: 'date',
+        candidateCount: 0,
+        senderMatchType: 'none',
+        evidence: null,
+        binanceApi: {
+          checked: true,
+          configured: true,
+          transactionCount: 0,
+          matchedTransactionId: null,
+          matchMode: 'none',
+          dateStrategy: null,
+          evidence: null,
+        },
+        strongestEmail: null,
+        strongestAuthStatus: null,
+        strongestAuthScore: null,
+        officialSenderMatched: 'unknown',
+        riskFlags: [],
+        autoRefresh: { attempted: false, status: 'not_needed', pulled: 0, processed: 0 },
+      })
+      .mockResolvedValueOnce({
+        companyId: 'company-default',
+        companySlug: 'default',
+        verificationMethod: 'binance',
+        authorized: true,
+        reasonCode: 'authorized',
+        candidateCount: 1,
+        senderMatchType: 'none',
+        evidence: null,
+        binanceApi: {
+          checked: true,
+          configured: true,
+          transactionCount: 1,
+          matchedTransactionId: '428221485342556160',
+          matchMode: 'reference_only',
+          dateStrategy: 'same_day',
+          evidence: null,
+        },
+        strongestEmail: null,
+        strongestAuthStatus: 'high',
+        strongestAuthScore: 95,
+        officialSenderMatched: true,
+        riskFlags: [],
+        autoRefresh: { attempted: false, status: 'not_needed', pulled: 0, processed: 0 },
+      });
+
+    const result = await processIncomingTwilioWebhook({
+      From: 'whatsapp:+584121112233',
+      To: 'whatsapp:+10000000000',
+      Body: 'Fecha 26 abril 2026',
+      MessageSid: 'SM-BINANCE-DATE-FOLLOW-UP',
+      NumMedia: '0',
+    });
+
+    expect(result.status).toBe('authorized');
+    expect(authorizeBinanceVerification).toHaveBeenCalledTimes(2);
+    expect(authorizeBinanceVerification.mock.calls[1]?.[1]).toMatchObject({
+      referenciaEsperada: '428221485342556160',
+      montoEsperado: 5,
+      bancoEsperado: 'Binance',
+      toleranciaMinutos: 720,
+    });
+    expect(result.replyText).toContain('Si, pago valido');
+    expect(result.replyText).toContain('Fecha usada: dia detectado');
+  });
+
   it('returns Binance API error details instead of Gmail sender wording', async () => {
     const { processIncomingTwilioWebhook } = await import('./whatsapp.service');
 

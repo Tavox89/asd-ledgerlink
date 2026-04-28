@@ -672,13 +672,16 @@ export async function processIncomingTwilioWebhook(
     : buildBlockedReply(verificationMethod, mergedInput, selected.result.reasonCode, selected.strategy.label, {
         binanceApiErrorCode: selectedBinanceApiSummary?.errorCode ?? null,
       });
+  const shouldKeepDateFollowUpOpen = !selected.result.authorized && selected.result.reasonCode === 'date';
 
   await prisma.whatsAppConversation.update({
     where: { id: conversation.id },
     data: {
-      status: WhatsAppConversationStatus.IDLE,
-      partialPayload: null,
-      pendingFields: [],
+      status: shouldKeepDateFollowUpOpen
+        ? WhatsAppConversationStatus.AWAITING_DETAILS
+        : WhatsAppConversationStatus.IDLE,
+      partialPayload: shouldKeepDateFollowUpOpen ? (mergedInput as never) : null,
+      pendingFields: shouldKeepDateFollowUpOpen ? (['fecha'] as never) : [],
       lastInboundMessageId: inboundMessage.id,
       lastInboundAt: inboundMessage.receivedAt,
       lastAttemptAt: inboundMessage.receivedAt,

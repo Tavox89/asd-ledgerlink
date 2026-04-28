@@ -548,6 +548,17 @@ function reasonRank(reasonCode: VerificationReasonCode) {
   }
 }
 
+function strategyRank(strategy: VerificationStrategyInput) {
+  switch (strategy.code) {
+    case 'extracted_datetime':
+      return 2;
+    case 'extracted_date_day':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
 export function choosePreferredStrategyResult<
   TResult extends { authorized: boolean; reasonCode: VerificationReasonCode; candidateCount: number },
 >(
@@ -566,6 +577,10 @@ export function choosePreferredStrategyResult<
 
     if (right.result.candidateCount !== left.result.candidateCount) {
       return right.result.candidateCount - left.result.candidateCount;
+    }
+
+    if (!left.result.authorized && !right.result.authorized) {
+      return strategyRank(right.strategy) - strategyRank(left.strategy);
     }
 
     return 0;
