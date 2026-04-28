@@ -475,7 +475,7 @@ export async function processIncomingTwilioWebhook(
     imageExtraction,
     mergedInput,
   });
-  const missingFields = getMissingVerificationFields(mergedInput, verificationMethod);
+  const missingFields = getMissingVerificationFields(mergedInput);
   const shouldSendImageFallback =
     Boolean(firstImage) &&
     imageExtraction !== null &&
@@ -640,7 +640,7 @@ export async function processIncomingTwilioWebhook(
   }
 
   const verificationMoment = inboundMessage.receivedAt;
-  const strategies = buildVerificationStrategies(mergedInput, verificationMoment);
+  const strategies = buildVerificationStrategies(mergedInput, verificationMoment, verificationMethod);
   const strategyResults: Array<{
     strategy: { code: string; label: string; fechaOperacion: string; toleranciaMinutos: number };
     result: WhatsAppAuthorizationResult;

@@ -365,7 +365,7 @@ describe('whatsapp service', () => {
     });
 
     expect(result.status).toBe('blocked');
-    expect(authorizeBinanceVerification).toHaveBeenCalledTimes(2);
+    expect(authorizeBinanceVerification).toHaveBeenCalledTimes(1);
     expect(result.replyText).toContain('Fecha usada: dia detectado');
     expect(result.replyText).not.toContain('Fecha usada: momento de verificacion');
     expect(prismaMock.whatsAppConversation.update).toHaveBeenCalledWith(
@@ -378,9 +378,34 @@ describe('whatsapp service', () => {
     );
   });
 
-  it('keeps Binance screenshots without a date pending instead of verifying by current time', async () => {
+  it('verifies Binance screenshots without a date against the current day', async () => {
     const { processIncomingTwilioWebhook } = await import('./whatsapp.service');
 
+    authorizeBinanceVerification.mockResolvedValueOnce({
+      companyId: 'company-default',
+      companySlug: 'default',
+      verificationMethod: 'binance',
+      authorized: true,
+      reasonCode: 'authorized',
+      candidateCount: 1,
+      senderMatchType: 'none',
+      evidence: null,
+      binanceApi: {
+        checked: true,
+        configured: true,
+        transactionCount: 1,
+        matchedTransactionId: '428557229373358081',
+        matchMode: 'reference_only',
+        dateStrategy: 'same_day',
+        evidence: null,
+      },
+      strongestEmail: null,
+      strongestAuthStatus: 'high',
+      strongestAuthScore: 95,
+      officialSenderMatched: true,
+      riskFlags: [],
+      autoRefresh: { attempted: false, status: 'not_needed', pulled: 0, processed: 0 },
+    });
     extractVerificationFromImage.mockResolvedValue({
       isTransferProof: true,
       reference: '428557229373358081',
@@ -405,15 +430,76 @@ describe('whatsapp service', () => {
       MediaContentType0: 'image/jpeg',
     });
 
-    expect(result.status).toBe('incomplete');
-    expect(result.replyText).toContain('fecha del pago');
-    expect(result.replyText).not.toContain('hora');
-    expect(authorizeBinanceVerification).not.toHaveBeenCalled();
+    expect(result.status).toBe('authorized');
+    expect(authorizeBinanceVerification).toHaveBeenCalledTimes(1);
+    expect(authorizeBinanceVerification.mock.calls[0]?.[1]).toMatchObject({
+      referenciaEsperada: '428557229373358081',
+      montoEsperado: 3,
+      toleranciaMinutos: 720,
+    });
+    expect(result.replyText).toContain('Fecha usada: dia actual');
+  });
+
+  it('asks for the payment date after the current-day Binance lookup misses by date', async () => {
+    const { processIncomingTwilioWebhook } = await import('./whatsapp.service');
+
+    authorizeBinanceVerification.mockResolvedValueOnce({
+      companyId: 'company-default',
+      companySlug: 'default',
+      verificationMethod: 'binance',
+      authorized: false,
+      reasonCode: 'date',
+      candidateCount: 0,
+      senderMatchType: 'none',
+      evidence: null,
+      binanceApi: {
+        checked: true,
+        configured: true,
+        transactionCount: 0,
+        matchedTransactionId: null,
+        matchMode: 'none',
+        dateStrategy: null,
+        evidence: null,
+      },
+      strongestEmail: null,
+      strongestAuthStatus: null,
+      strongestAuthScore: null,
+      officialSenderMatched: 'unknown',
+      riskFlags: [],
+      autoRefresh: { attempted: false, status: 'not_needed', pulled: 0, processed: 0 },
+    });
+    extractVerificationFromImage.mockResolvedValue({
+      isTransferProof: true,
+      reference: '428557229373358081',
+      customerName: null,
+      alias: 'Gedcorp',
+      amount: 3,
+      currency: 'USD',
+      date: null,
+      time: null,
+      bank: 'Binance',
+      confidence: 90,
+      rawText: 'Pago exitoso 3 USDT Alias Gedcorp ID de orden 428557229373358081',
+    });
+
+    const result = await processIncomingTwilioWebhook({
+      From: 'whatsapp:+584121112233',
+      To: 'whatsapp:+10000000000',
+      Body: '',
+      MessageSid: 'SM-BINANCE-CURRENT-DATE-MISS',
+      NumMedia: '1',
+      MediaUrl0: 'https://example.com/binance.jpg',
+      MediaContentType0: 'image/jpeg',
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.replyText).toContain('Fecha usada: dia actual');
+    expect(result.replyText).toContain('Escribe solo la fecha del pago');
     expect(prismaMock.whatsAppConversation.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           status: 'AWAITING_DETAILS',
-          pendingFields: ['fecha del pago'],
+          pendingFields: ['fecha'],
           partialPayload: expect.objectContaining({
             reference: '428557229373358081',
             amount: 3,
@@ -444,33 +530,7 @@ describe('whatsapp service', () => {
         pendingFields: ['fecha'],
       }),
     );
-    authorizeBinanceVerification
-      .mockResolvedValueOnce({
-        companyId: 'company-default',
-        companySlug: 'default',
-        verificationMethod: 'binance',
-        authorized: false,
-        reasonCode: 'date',
-        candidateCount: 0,
-        senderMatchType: 'none',
-        evidence: null,
-        binanceApi: {
-          checked: true,
-          configured: true,
-          transactionCount: 0,
-          matchedTransactionId: null,
-          matchMode: 'none',
-          dateStrategy: null,
-          evidence: null,
-        },
-        strongestEmail: null,
-        strongestAuthStatus: null,
-        strongestAuthScore: null,
-        officialSenderMatched: 'unknown',
-        riskFlags: [],
-        autoRefresh: { attempted: false, status: 'not_needed', pulled: 0, processed: 0 },
-      })
-      .mockResolvedValueOnce({
+    authorizeBinanceVerification.mockResolvedValueOnce({
         companyId: 'company-default',
         companySlug: 'default',
         verificationMethod: 'binance',
@@ -505,8 +565,8 @@ describe('whatsapp service', () => {
     });
 
     expect(result.status).toBe('authorized');
-    expect(authorizeBinanceVerification).toHaveBeenCalledTimes(2);
-    expect(authorizeBinanceVerification.mock.calls[1]?.[1]).toMatchObject({
+    expect(authorizeBinanceVerification).toHaveBeenCalledTimes(1);
+    expect(authorizeBinanceVerification.mock.calls[0]?.[1]).toMatchObject({
       referenciaEsperada: '428221485342556160',
       montoEsperado: 5,
       bancoEsperado: 'Binance',

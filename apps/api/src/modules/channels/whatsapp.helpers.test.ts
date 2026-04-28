@@ -155,6 +155,54 @@ describe('whatsapp helpers', () => {
     });
   });
 
+  it('builds a Binance current-day strategy when no date is available', () => {
+    const strategies = buildVerificationStrategies(
+      {
+        reference: '428557229373358081',
+        customerName: null,
+        amount: 3,
+        currency: 'USD',
+        currencySource: 'image',
+        bank: 'Binance',
+        extractedDate: null,
+        extractedTime: null,
+      },
+      new Date('2026-04-28T18:02:00.000Z'),
+      'binance',
+    );
+
+    expect(strategies).toHaveLength(1);
+    expect(strategies[0]).toMatchObject({
+      code: 'current_date_day',
+      label: 'dia actual',
+      toleranciaMinutos: 720,
+    });
+  });
+
+  it('uses only the detected day for Binance even when a time is available', () => {
+    const strategies = buildVerificationStrategies(
+      {
+        reference: '428221485342556160',
+        customerName: null,
+        amount: 5,
+        currency: 'USD',
+        currencySource: 'image',
+        bank: 'Binance',
+        extractedDate: '2026-04-26',
+        extractedTime: '22:36',
+      },
+      new Date('2026-04-28T18:02:00.000Z'),
+      'binance',
+    );
+
+    expect(strategies).toHaveLength(1);
+    expect(strategies[0]).toMatchObject({
+      code: 'extracted_date_day',
+      label: 'dia detectado',
+      toleranciaMinutos: 720,
+    });
+  });
+
   it('treats reference or name as alternative identity fields for WhatsApp collection', () => {
     expect(
       getMissingVerificationFields({
@@ -183,37 +231,31 @@ describe('whatsapp helpers', () => {
     ).toEqual(['referencia o nombre']);
   });
 
-  it('requires only the payment date as the extra Binance WhatsApp field', () => {
+  it('does not require the payment date before the first Binance WhatsApp lookup', () => {
     expect(
-      getMissingVerificationFields(
-        {
-          reference: '428557229373358081',
-          customerName: null,
-          amount: 3,
-          currency: 'USD',
-          currencySource: 'image',
-          bank: 'Binance',
-          extractedDate: null,
-          extractedTime: null,
-        },
-        'binance',
-      ),
-    ).toEqual(['fecha del pago']);
+      getMissingVerificationFields({
+        reference: '428557229373358081',
+        customerName: null,
+        amount: 3,
+        currency: 'USD',
+        currencySource: 'image',
+        bank: 'Binance',
+        extractedDate: null,
+        extractedTime: null,
+      }),
+    ).toEqual([]);
 
     expect(
-      getMissingVerificationFields(
-        {
-          reference: '428557229373358081',
-          customerName: null,
-          amount: 3,
-          currency: 'USD',
-          currencySource: 'image',
-          bank: 'Binance',
-          extractedDate: '2026-04-26',
-          extractedTime: null,
-        },
-        'binance',
-      ),
+      getMissingVerificationFields({
+        reference: '428557229373358081',
+        customerName: null,
+        amount: 3,
+        currency: 'USD',
+        currencySource: 'image',
+        bank: 'Binance',
+        extractedDate: '2026-04-26',
+        extractedTime: null,
+      }),
     ).toEqual([]);
   });
 

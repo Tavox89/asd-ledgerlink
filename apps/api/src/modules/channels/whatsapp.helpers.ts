@@ -68,7 +68,7 @@ export interface CollectedVerificationInput {
 export type VerificationPaymentMethod = 'zelle' | 'binance' | 'unknown';
 
 export interface VerificationStrategyInput {
-  code: 'verification_moment' | 'extracted_datetime' | 'extracted_date_day';
+  code: 'verification_moment' | 'current_date_day' | 'extracted_datetime' | 'extracted_date_day';
   label: string;
   fechaOperacion: string;
   toleranciaMinutos: number;
@@ -479,19 +479,13 @@ export function detectVerificationMethod(input: {
   return 'unknown';
 }
 
-export function getMissingVerificationFields(
-  input: CollectedVerificationInput,
-  method: VerificationPaymentMethod = 'zelle',
-) {
+export function getMissingVerificationFields(input: CollectedVerificationInput) {
   const missing: string[] = [];
   if (!input.reference && !input.customerName) {
     missing.push('referencia o nombre');
   }
   if (input.amount === null || input.amount === undefined) {
     missing.push('monto');
-  }
-  if (method === 'binance' && !input.extractedDate) {
-    missing.push('fecha del pago');
   }
 
   return missing;
@@ -506,7 +500,21 @@ function buildLocalDate(date: string, time?: string | null) {
 export function buildVerificationStrategies(
   input: CollectedVerificationInput,
   verificationMoment: Date,
+  method: VerificationPaymentMethod = 'zelle',
 ): VerificationStrategyInput[] {
+  if (method === 'binance') {
+    const date = input.extractedDate ?? dayjs(verificationMoment).format('YYYY-MM-DD');
+
+    return [
+      {
+        code: input.extractedDate ? 'extracted_date_day' : 'current_date_day',
+        label: input.extractedDate ? 'dia detectado' : 'dia actual',
+        fechaOperacion: buildLocalDate(date, '12:00').toISOString(),
+        toleranciaMinutos: 720,
+      },
+    ];
+  }
+
   const strategies: VerificationStrategyInput[] = [
     {
       code: 'verification_moment',
@@ -559,6 +567,7 @@ function strategyRank(strategy: VerificationStrategyInput) {
     case 'extracted_datetime':
       return 2;
     case 'extracted_date_day':
+    case 'current_date_day':
       return 1;
     default:
       return 0;
