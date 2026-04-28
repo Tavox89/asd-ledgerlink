@@ -256,11 +256,16 @@ describe('verification routes', () => {
       authorized: true,
       reasonCode: 'authorized',
       candidateCount: 1,
-      senderMatchType: 'email',
-      evidence: {
-        id: 'email-binance-1',
-        gmailMessageId: 'gmail-binance-1',
-        senderMatchType: 'email',
+      senderMatchType: 'none',
+      evidence: null,
+      binanceApi: {
+        checked: true,
+        configured: true,
+        transactionCount: 1,
+        matchedTransactionId: '428221485342556160',
+        matchMode: 'reference_only',
+        dateStrategy: 'exact_window',
+        evidence: null,
       },
       autoRefresh: { attempted: false, status: 'not_needed', pulled: 0, processed: 0 },
     });
@@ -290,7 +295,7 @@ describe('verification routes', () => {
       status: 'match_found',
       authorized: true,
       reasonCode: 'authorized',
-      senderMatchType: 'email',
+      senderMatchType: 'none',
       candidateCount: 1,
       evidence: null,
       transfer: {
@@ -333,7 +338,7 @@ describe('verification routes', () => {
     });
   });
 
-  it('creates registered Binance verification requests through the dedicated manual route', async () => {
+  it('routes the Binance manual endpoint through the API-only Binance flow', async () => {
     const { verificationsRouter } = await import('./verifications.routes');
     const app = express();
     app.use(express.json());
@@ -341,17 +346,26 @@ describe('verification routes', () => {
     app.use(errorHandler);
 
     createManualBinanceVerification.mockResolvedValue({
-      id: 'manual-binance-1',
-      persisted: true,
+      id: 'lookup',
+      persisted: false,
       verificationMethod: 'binance',
-      status: 'pending',
-      authorized: false,
-      reasonCode: 'date',
+      status: 'preconfirmed',
+      authorized: true,
+      reasonCode: 'authorized',
       senderMatchType: 'none',
-      candidateCount: 0,
+      candidateCount: 1,
       evidence: null,
+      binanceApi: {
+        checked: true,
+        configured: true,
+        transactionCount: 1,
+        matchedTransactionId: '428221485342556160',
+        matchMode: 'reference_only',
+        dateStrategy: 'exact_window',
+        evidence: null,
+      },
       transfer: {
-        id: 'manual-binance-1',
+        id: 'lookup',
         referenceExpected: '428221485342556160',
         amountExpected: 5,
         currency: 'USD',
@@ -361,10 +375,10 @@ describe('verification routes', () => {
         destinationAccountLast4: null,
         customerName: 'Edelynr',
         notes: 'Source: whatsapp',
-        status: 'pending',
-        matchCount: 0,
+        status: 'preconfirmed',
+        matchCount: 1,
       },
-      canTreatAsConfirmed: false,
+      canTreatAsConfirmed: true,
       bestMatch: null,
       strongestEmail: null,
       strongestAuthStatus: null,
@@ -383,7 +397,7 @@ describe('verification routes', () => {
     expect(createManualBinanceVerification).toHaveBeenCalledWith('default', validBinancePayload);
     expect(response.body).toMatchObject({
       verificationMethod: 'binance',
-      status: 'pending',
+      status: 'preconfirmed',
     });
   });
 

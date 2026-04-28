@@ -157,7 +157,7 @@ describe('verification service auto-refresh', () => {
       authorized: true,
       reasonCode: 'authorized',
       candidateCount: 1,
-      senderMatchType: 'email',
+      senderMatchType: 'none',
       evidence: {
         id: 'email-1',
         gmailMessageId: 'gmail-email-1',

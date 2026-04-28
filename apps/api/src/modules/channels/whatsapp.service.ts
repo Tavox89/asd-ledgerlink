@@ -66,6 +66,14 @@ type StoredWhatsAppAttemptRecord = Prisma.WhatsAppVerificationAttemptGetPayload<
   };
 }>;
 
+type WhatsAppAuthorizationResult =
+  | Awaited<ReturnType<typeof authorizeVerification>>
+  | Awaited<ReturnType<typeof authorizeBinanceVerification>>;
+
+function getBinanceApiSummary(result: WhatsAppAuthorizationResult) {
+  return 'binanceApi' in result ? result.binanceApi : null;
+}
+
 function parseStoredPartialPayload(value: unknown): Partial<CollectedVerificationInput> | null {
   if (!value || typeof value !== 'object') {
     return null;
@@ -635,7 +643,7 @@ export async function processIncomingTwilioWebhook(
   const strategies = buildVerificationStrategies(mergedInput, verificationMoment);
   const strategyResults: Array<{
     strategy: { code: string; label: string; fechaOperacion: string; toleranciaMinutos: number };
-    result: Awaited<ReturnType<typeof authorizeVerification>>;
+    result: WhatsAppAuthorizationResult;
   }> = [];
 
   for (const strategy of strategies) {
@@ -698,6 +706,7 @@ export async function processIncomingTwilioWebhook(
         senderMatchType: item.result.senderMatchType,
         evidence: item.result.evidence,
         autoRefresh: item.result.autoRefresh,
+        binanceApi: getBinanceApiSummary(item.result),
       },
     })),
     finalResult: {
@@ -707,6 +716,7 @@ export async function processIncomingTwilioWebhook(
       verificationMethod,
       replyText,
       evidence: selected.result.evidence,
+      binanceApi: getBinanceApiSummary(selected.result),
     },
     rawPayload: body,
   });

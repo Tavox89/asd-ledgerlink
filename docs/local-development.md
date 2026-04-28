@@ -56,7 +56,7 @@ pnpm --filter @ledgerlink/web dev
 4. Register the Gmail watch when you also want Pub/Sub-based ingestion.
 5. Leave the local worker enabled for automatic polling, or pull Pub/Sub messages manually once `GOOGLE_APPLICATION_CREDENTIALS` is configured.
 6. Inspect `/companies/<slug>/emails`.
-7. Use `/companies/<slug>/verifications` to look up stored inbox evidence with `reference`, `name`, or both, plus `amount + date` after the email already arrived. If the first lookup still has no exact candidate, the backend now does one Pub/Sub pull and retries automatically.
+7. Use `/companies/<slug>/verifications` to look up Zelle stored inbox evidence with `reference`, `name`, or both, plus `amount + date` after the email already arrived. If the first lookup still has no exact candidate, the backend now does one Pub/Sub pull and retries automatically. Binance mode consults Binance API directly and does not use Gmail evidence.
 8. Create an integration token with `POST /companies/:companySlug/integration-tokens` when you want to test the external bearer-protected verification contract.
 9. Use `POST /companies/:companySlug/verifications/authorize` with `Authorization: Bearer <token>` to exercise the same exact yes/no decision an external checkout or backoffice flow would consume.
 10. Use `POST /companies/:companySlug/verifications/lookup` with `Authorization: Bearer <token>` when the external bridge needs the richer operator-style payload.

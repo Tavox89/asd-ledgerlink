@@ -73,7 +73,7 @@ describe('bank notification parser registry', () => {
     expect(parsed.reference).toBe('760045800');
   });
 
-  it('extracts Binance incoming transfer evidence with order id, UTC time, and USDT amount normalized to USD', () => {
+  it('does not parse Binance emails as Gmail payment evidence because Binance is verified by API', () => {
     const email: NormalizedInboundEmail = {
       gmailMessageId: 'binance-incoming-1',
       gmailThreadId: 'thread-binance-incoming-1',
@@ -95,15 +95,6 @@ describe('bank notification parser registry', () => {
 
     const parsed = parseBankNotification(email);
 
-    expect(parsed?.parserName).toBe('binance-parser');
-    expect(parsed?.bankName).toBe('Binance');
-    expect(parsed?.reference).toBe('428221485342556160');
-    expect(parsed?.amount).toBe(5);
-    expect(parsed?.currency).toBe('USD');
-    expect(parsed?.originatorName).toBe('Edelynr');
-    expect(parsed?.transferAt?.toISOString()).toBe('2026-04-26T22:36:08.000Z');
-    expect(parsed?.extractedData).toMatchObject({
-      assetSymbol: 'USDT',
-    });
+    expect(parsed).toBeNull();
   });
 });

@@ -49,17 +49,7 @@ const ZELLE_PROFILE: VerificationFlowProfile = {
 const BINANCE_PROFILE: VerificationFlowProfile = {
   method: 'binance',
   forcedBankName: 'Binance',
-  candidateFilter: (email) => {
-    const parsed = email.parsedNotification;
-    if (!parsed) {
-      return false;
-    }
-
-    return (
-      normalizeComparable(parsed.bankName) === 'binance' ||
-      normalizeComparable(parsed.parserName) === 'binanceparser'
-    );
-  },
+  candidateFilter: () => false,
 };
 
 function defaultAutoRefreshResult(): VerificationAutoRefreshResult {
@@ -363,6 +353,33 @@ async function buildVerificationSummary(
   transfer: NonNullable<Awaited<ReturnType<typeof loadVerificationTransfer>>>,
 ) {
   const profile = resolveProfileFromExpectedBank(transfer.expectedBank);
+  if (profile.method === 'binance') {
+    return {
+      id: transfer.id,
+      persisted: true,
+      verificationMethod: 'binance',
+      transfer: serializeExpectedTransfer(transfer),
+      status: transfer.status.toLowerCase(),
+      authorized: false,
+      reasonCode:
+        transfer.referenceExpected || transfer.customerName ? 'reference' : 'identity_required',
+      senderMatchType: 'none',
+      candidateCount: 0,
+      evidence: null,
+      canTreatAsConfirmed: false,
+      bestMatch: null,
+      strongestEmail: null,
+      strongestAuthStatus: null,
+      strongestAuthScore: null,
+      officialSenderMatched: 'unknown',
+      riskFlags: ['binance_requires_live_api_lookup'],
+      autoRefresh: defaultAutoRefreshResult(),
+      matchCount: 0,
+      createdAt: transfer.createdAt,
+      updatedAt: transfer.updatedAt,
+    };
+  }
+
   const spec = buildExactAuthorizationSpecFromTransfer(transfer);
   const { candidateEmails } = await loadVerificationCandidateEmails(spec);
   const filteredCandidateEmails = filterCandidatesForProfile(candidateEmails, profile);
@@ -512,7 +529,7 @@ export async function createManualBinanceVerification(
   companySlug: string,
   input: CreateManualVerificationInput,
 ) {
-  return createManualVerificationWithProfile(companySlug, input, BINANCE_PROFILE);
+  return lookupBinanceVerification(companySlug, input);
 }
 
 export async function authorizeVerification(

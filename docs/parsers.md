@@ -7,6 +7,7 @@ LedgerLink uses a parser registry so bank-specific logic can be added without ch
 - `generic-bank-parser`: fallback parser using common banking notification patterns
 - `banesco-parser`: example bank-specific parser tuned for common Banesco email phrasing
 - `mercantil-parser`: example bank-specific parser tuned for Mercantil-style references and amounts
+- Binance emails are intentionally ignored by the Gmail parser registry. Binance verification uses the official Binance Pay API instead.
 
 ## Contract
 
@@ -33,4 +34,5 @@ Each parser:
 
 - The generic parser uses regex extraction over merged `text/plain` and `text/html` content.
 - Bank-specific parsers extend the generic baseline and override confidence or reference heuristics when they detect a known institution.
+- Binance screenshots or text are parsed only by the WhatsApp/input layer to obtain lookup fields; they are not stored as Gmail payment evidence.
 - The parser layer is prepared for future PDF or OCR adapters by keeping the output contract separate from the source medium.

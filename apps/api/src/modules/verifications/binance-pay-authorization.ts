@@ -626,7 +626,7 @@ function buildResult(
     authorized,
     reasonCode: authorized ? 'authorized' : reasonFromEvaluations(evaluations, hasReference, hasName),
     candidateCount: authorized ? 1 : 0,
-    senderMatchType: authorized || evidence ? 'email' : 'none',
+    senderMatchType: 'none',
     evidence: null,
     binanceApi: {
       ...baseApiSummary(true, true, window),

@@ -48,6 +48,7 @@ describe('Binance Pay authorization', () => {
 
     expect(result.authorized).toBe(true);
     expect(result.reasonCode).toBe('authorized');
+    expect(result.senderMatchType).toBe('none');
     expect(result.binanceApi.evidence?.matchMode).toBe('reference_only');
     expect(result.binanceApi.evidence?.assetSymbol).toBe('USDT');
     expect(result.officialSenderMatched).toBe(true);

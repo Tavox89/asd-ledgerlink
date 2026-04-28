@@ -108,6 +108,9 @@ export function ManualVerificationView() {
 
   const modeReferenceLabel = mode === 'binance' ? 'ID de orden' : 'Referencia';
   const modeNameLabel = mode === 'binance' ? 'Nombre del pagador' : 'Nombre de quien envía';
+  const isBinanceMode = mode === 'binance';
+  const lookupActionLabel = isBinanceMode ? 'Consultar Binance API' : 'Buscar evidencia en el buzón';
+  const lookupLoadingLabel = isBinanceMode ? 'Consultando Binance...' : 'Revisando buzón...';
   const operatorLookupPath =
     mode === 'binance'
       ? `/companies/${companySlug}/verifications/binance/operator-lookup`
@@ -145,11 +148,13 @@ export function ManualVerificationView() {
     },
     onSuccess: (result) => {
       setLatestResult(result);
-      toast.success(
-        result.autoRefresh?.status === 'retried'
-          ? 'La evidencia del buzón se revisó después del reintento automático de Pub/Sub.'
-          : 'La evidencia del buzón fue revisada.',
-      );
+      const successMessage =
+        mode === 'binance'
+          ? 'Binance API consultada.'
+          : result.autoRefresh?.status === 'retried'
+            ? 'La evidencia del buzón se revisó después del reintento automático de Pub/Sub.'
+            : 'La evidencia del buzón fue revisada.';
+      toast.success(successMessage);
     },
     onError: (error) => toast.error(error.message),
   });
@@ -204,16 +209,20 @@ export function ManualVerificationView() {
   return (
     <AppShell
       title="Verificación manual"
-      description="Consulta el buzón con referencia, nombre o ambos, además de monto y fecha después de que llegue el correo. Ese mismo resultado exacto de autorización es el que ahora usa el API para permitir o bloquear el cierre de la transacción."
+      description={
+        isBinanceMode
+          ? 'Consulta Binance API con ID de orden, nombre del pagador o ambos, además de monto y fecha. La captura de WhatsApp solo sirve para extraer esos datos.'
+          : 'Consulta el buzón con referencia, nombre o ambos, además de monto y fecha después de que llegue el correo. Ese mismo resultado exacto de autorización es el que usa el API para permitir o bloquear el cierre de la transacción.'
+      }
     >
       <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <Card>
           <CardHeader>
             <CardTitle>Entrada de verificación</CardTitle>
             <CardDescription>
-              Usa la misma señal que enviaría un operador o un API externo después de que el correo
-              de pago ya llegó. Zelle y Binance comparten esta vista, pero se validan con evidencia
-              distinta según el método elegido.
+              {isBinanceMode
+                ? 'Usa el ID de orden o los datos extraídos de la captura para consultar directamente Binance. Este flujo no depende de Gmail.'
+                : 'Usa la misma señal que enviaría un operador o un API externo después de que el correo de pago ya llegó. Zelle se valida con evidencia del buzón.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
@@ -297,13 +306,15 @@ export function ManualVerificationView() {
               />
             </div>
             <div className="md:col-span-2 flex flex-wrap justify-end gap-3">
-              <Button
-                variant="outline"
-                onClick={() => createMutation.mutate()}
-                disabled={createMutation.isPending || lookupMutation.isPending}
-              >
-                Crear solicitud registrada
-              </Button>
+              {!isBinanceMode ? (
+                <Button
+                  variant="outline"
+                  onClick={() => createMutation.mutate()}
+                  disabled={createMutation.isPending || lookupMutation.isPending}
+                >
+                  Crear solicitud registrada
+                </Button>
+              ) : null}
               <Button
                 onClick={() => lookupMutation.mutate()}
                 disabled={lookupMutation.isPending || createMutation.isPending}
@@ -311,10 +322,10 @@ export function ManualVerificationView() {
                 {lookupMutation.isPending ? (
                   <>
                     <LoaderCircle className="mr-2 size-4 animate-spin" />
-                    Revisando buzón...
+                    {lookupLoadingLabel}
                   </>
                 ) : (
-                  'Buscar evidencia en el buzón'
+                  lookupActionLabel
                 )}
               </Button>
             </div>
@@ -330,15 +341,23 @@ export function ManualVerificationView() {
             {lookupMutation.isPending ? (
               <div className="flex min-h-[22rem] flex-col items-center justify-center rounded-2xl border border-dashed border-border/60 px-6 text-center">
                 <LoaderCircle className="size-8 animate-spin text-primary" />
-                <p className="mt-4 font-semibold">Revisando evidencia del buzón</p>
+                <p className="mt-4 font-semibold">
+                  {isBinanceMode ? 'Consultando Binance API' : 'Revisando evidencia del buzón'}
+                </p>
                 <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-                  El backend está revisando el buzón almacenado y lanzará una actualización automática de Pub/Sub si la evidencia aún no está disponible con la política actual de referencia o nombre, más monto y fecha.
+                  {isBinanceMode
+                    ? 'El backend está revisando el historial oficial de Binance Pay para el día indicado.'
+                    : 'El backend está revisando el buzón almacenado y lanzará una actualización automática de Pub/Sub si la evidencia aún no está disponible con la política actual de referencia o nombre, más monto y fecha.'}
                 </p>
               </div>
             ) : !latestResult ? (
               <EmptyState
                 title="Aún no se ha evaluado ninguna verificación"
-                description="Consulta el buzón con referencia, nombre o ambos, además de monto y fecha después de que llegue el correo. Crea una solicitud registrada solo cuando el caso deba mantenerse abierto."
+                description={
+                  isBinanceMode
+                    ? 'Consulta Binance con ID de orden, nombre o ambos, además de monto y fecha.'
+                    : 'Consulta el buzón con referencia, nombre o ambos, además de monto y fecha después de que llegue el correo. Crea una solicitud registrada solo cuando el caso deba mantenerse abierto.'
+                }
               />
             ) : (
               <div className="space-y-4">
@@ -372,8 +391,21 @@ export function ManualVerificationView() {
                     {formatDateTime(latestResult.transfer.expectedWindowTo)}
                   </p>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    Candidatos exactos: {latestResult.candidateCount} · Política del remitente:{' '}
-                    {translateLabel(latestResult.senderMatchType)}
+                    {inferVerificationMethod(latestResult) === 'binance' ? (
+                      <>
+                        Transacciones oficiales exactas: {latestResult.candidateCount} · Receptor:{' '}
+                        {latestResult.officialSenderMatched === true
+                          ? 'coincide'
+                          : latestResult.officialSenderMatched === false
+                            ? 'no coincide'
+                            : 'no confirmado'}
+                      </>
+                    ) : (
+                      <>
+                        Candidatos exactos: {latestResult.candidateCount} · Política del remitente:{' '}
+                        {translateLabel(latestResult.senderMatchType)}
+                      </>
+                    )}
                   </p>
                   {renderAutoRefreshMessage(latestResult) ? (
                     <div className="mt-3 rounded-2xl border border-cyan-200/60 bg-cyan-50/70 px-4 py-3 text-sm text-cyan-900 dark:border-cyan-900/60 dark:bg-cyan-950/30 dark:text-cyan-200">
@@ -394,37 +426,39 @@ export function ManualVerificationView() {
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="rounded-2xl border border-border/60 p-4">
-                    {latestResult.binanceApi?.evidence ? (
+                    {inferVerificationMethod(latestResult) === 'binance' ? (
                       <>
                         <p className="text-sm text-muted-foreground">Evidencia oficial Binance</p>
                         <p className="mt-2 font-semibold">
-                          Orden {latestResult.binanceApi.evidence.transactionId ?? 'sin ID'}
+                          {latestResult.binanceApi?.evidence
+                            ? `Orden ${latestResult.binanceApi.evidence.transactionId ?? 'sin ID'}`
+                            : 'Sin transacción oficial coincidente'}
                         </p>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          Pagador: {latestResult.binanceApi.evidence.payerName ?? 'Sin nombre detectado'}
+                          Pagador: {latestResult.binanceApi?.evidence?.payerName ?? 'Sin nombre detectado'}
                         </p>
                         <p className="mt-2 text-xs text-muted-foreground">
                           Monto API:{' '}
                           {formatMoney(
-                            latestResult.binanceApi.evidence.amount ?? latestResult.transfer.amountExpected,
-                            latestResult.binanceApi.evidence.currency ?? latestResult.transfer.currency,
+                            latestResult.binanceApi?.evidence?.amount ?? latestResult.transfer.amountExpected,
+                            latestResult.binanceApi?.evidence?.currency ?? latestResult.transfer.currency,
                           )}
-                          {latestResult.binanceApi.evidence.assetSymbol
+                          {latestResult.binanceApi?.evidence?.assetSymbol
                             ? ` · Activo ${latestResult.binanceApi.evidence.assetSymbol}`
                             : ''}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          Fecha API: {formatDateTime(latestResult.binanceApi.evidence.transactionTime ?? null)}
+                          Fecha API: {formatDateTime(latestResult.binanceApi?.evidence?.transactionTime ?? null)}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          Coincidencia: {binanceMatchModeLabel(latestResult.binanceApi.evidence.matchMode)} ·{' '}
-                          {binanceDateStrategyLabel(latestResult.binanceApi.evidence.dateStrategy)}
+                          Coincidencia: {binanceMatchModeLabel(latestResult.binanceApi?.matchMode)} ·{' '}
+                          {binanceDateStrategyLabel(latestResult.binanceApi?.dateStrategy)}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
                           Receptor configurado:{' '}
-                          {latestResult.binanceApi.evidence.receiverMatched === true
+                          {latestResult.binanceApi?.evidence?.receiverMatched === true
                             ? 'coincide'
-                            : latestResult.binanceApi.evidence.receiverMatched === false
+                            : latestResult.binanceApi?.evidence?.receiverMatched === false
                               ? 'no coincide'
                               : 'no informado por Binance'}
                         </p>
@@ -485,12 +519,16 @@ export function ManualVerificationView() {
                       {latestResult.strongestAuthScore ?? 'N/D'}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Allowlist oficial del remitente:{' '}
+                      {inferVerificationMethod(latestResult) === 'binance'
+                        ? 'Receptor Binance configurado: '
+                        : 'Allowlist oficial del remitente: '}
                       {latestResult.officialSenderMatched === true
                         ? 'coincide'
                         : latestResult.officialSenderMatched === false
                           ? 'no coincide'
-                          : 'desconocido'}
+                          : inferVerificationMethod(latestResult) === 'binance'
+                            ? 'no informado'
+                            : 'desconocido'}
                     </p>
                   </div>
                 </div>
@@ -555,7 +593,7 @@ export function ManualVerificationView() {
                   <TH>Monto</TH>
                   <TH>Estado</TH>
                   <TH>Autorización</TH>
-                  <TH>Correo principal</TH>
+                  <TH>Evidencia</TH>
                   <TH>Motivo</TH>
                   <TH>Creada</TH>
                 </TR>
@@ -576,7 +614,11 @@ export function ManualVerificationView() {
                     <TD>
                       <StatusBadge status={item.authorized ? 'authorized' : item.reasonCode} />
                     </TD>
-                    <TD>{item.evidence?.subject ?? item.strongestEmail?.subject ?? 'Aún sin evidencia'}</TD>
+                    <TD>
+                      {inferVerificationMethod(item) === 'binance'
+                        ? 'Consulta directa Binance API'
+                        : item.evidence?.subject ?? item.strongestEmail?.subject ?? 'Aún sin evidencia'}
+                    </TD>
                     <TD>{translateReasonCode(item.reasonCode)}</TD>
                     <TD>{formatDateTime(item.createdAt)}</TD>
                   </TR>

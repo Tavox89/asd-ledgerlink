@@ -88,7 +88,7 @@ curl -X POST http://localhost:4000/gmail/pubsub/pull
 
 8. Review stored emails in `/companies/<slug>/emails`
 9. Create expected transfers in `/companies/<slug>/transfers/new`
-10. Use `/companies/<slug>/verifications` to query stored inbox evidence with `reference`, `name`, or both, plus `amount + date` after the email arrives. The same screen now lets the operator switch between `Zelle` and `Binance`.
+10. Use `/companies/<slug>/verifications` to query Zelle stored inbox evidence with `reference`, `name`, or both, plus `amount + date` after the email arrives. The same screen lets the operator switch to `Binance`, which consults Binance API directly.
 11. Create a company integration token before connecting WordPress/OpenPOS or another external bridge
 12. Use `POST /companies/:companySlug/verifications/authorize` when an external system needs a binary close/no-close authorization with evidence. Identity can be driven by exact `referenciaEsperada`, exact `nombreClienteOpcional`, or both together.
 13. Create a tracked verification request from the same screen only when you need manual follow-up
@@ -168,10 +168,10 @@ Legacy aliases for Gmail, verifications, transfers, matches, reviews, audit, and
 - In development, the API starts a background Gmail Pub/Sub pull worker when `GMAIL_PUBSUB_WORKER_INTERVAL_MS` is greater than `0`.
 - Company-level Gmail sync, watch register/renew, and manual Pub/Sub pull now operate across every connected inbox in that company and return per-inbox results.
 - `POST /companies/:companySlug/verifications/lookup` and `POST /companies/:companySlug/verifications/authorize` are now bearer-protected integration endpoints for external systems such as the ASD PayVerify Bridge.
-- Binance integration uses the parallel routes `/companies/:companySlug/verifications/binance/*` but keeps the same base payload shape (`referenciaEsperada`, `nombreClienteOpcional`, `montoEsperado`, `fechaOperacion`, and `toleranciaMinutos`). Binance authorization now checks the official Binance Pay history API first; Gmail/capture extraction is treated as input/traceability, not the final authority.
+- Binance integration uses the parallel routes `/companies/:companySlug/verifications/binance/*` but keeps the same base payload shape (`referenciaEsperada`, `nombreClienteOpcional`, `montoEsperado`, `fechaOperacion`, and `toleranciaMinutos`). Binance authorization checks the official Binance Pay history API directly; Gmail is not used as Binance evidence.
 - `POST /companies/:companySlug/verifications/operator-lookup` keeps the internal operator UI flow working without a bearer token until operator auth exists.
-- Protected integration calls still do one automatic Pub/Sub pull and recheck when the first pass still has no exact candidate.
-- Exact verification windows use the email arrival time in the inbox (`internalDate`, with stored `receivedAt` as fallback), not the transfer date parsed from the email body.
+- Protected Zelle integration calls still do one automatic Pub/Sub pull and recheck when the first pass still has no exact candidate.
+- Zelle exact verification windows use the email arrival time in the inbox (`internalDate`, with stored `receivedAt` as fallback), not the transfer date parsed from the email body. Binance uses Binance Pay `transactionTime`.
 
 ## Integration API tokens
 
@@ -191,7 +191,7 @@ Legacy aliases for Gmail, verifications, transfers, matches, reviews, audit, and
 - The pilot accepts either free text, an image comprobante, or both in the same message.
 - The same WhatsApp line now supports both `Zelle` and `Binance`; the backend classifies the method before choosing the authorization flow.
 - WhatsApp verification tries the verification moment first, then any extracted datetime, and finally a whole-day strategy when only the date is available.
-- Binance WhatsApp verification shares that line but authorizes against Binance Pay history using `Order ID`, payer name, amount and date. `USDT` is still normalized operationally to `USD`.
+- Binance WhatsApp verification shares that line but authorizes against Binance Pay history using `Order ID`, payer name, amount and date. Screenshots only extract those values; `USDT` is still normalized operationally to `USD`.
 - Text fields override image extraction when both are present.
 - Allowed pilot phone numbers now live on each company's `WhatsAppChannel`; `WHATSAPP_ALLOWED_TEST_NUMBERS` is only used to seed or backfill the initial `default` channel.
 
