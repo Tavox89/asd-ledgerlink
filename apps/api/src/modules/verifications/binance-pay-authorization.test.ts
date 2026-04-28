@@ -229,4 +229,31 @@ describe('Binance Pay authorization', () => {
     expect(result.binanceApi.provider).toBe('remote');
     expect(result.binanceApi.errorCode).toBe('binance_verifier_token_missing');
   });
+
+  it('normalizes zero-transaction remote reference misses to date for clearer operator messaging', async () => {
+    env.BINANCE_VERIFIER_URL = 'https://binance-verifier.example.com';
+    env.BINANCE_VERIFIER_TOKEN = 'test-verifier-token';
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          authorized: false,
+          reasonCode: 'reference',
+          transactionCount: 0,
+          matchedTransactionId: null,
+          matchMode: 'none',
+          dateStrategy: null,
+          evidence: null,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const result = await evaluateBinancePayAuthorization(buildSpec());
+
+    expect(result.authorized).toBe(false);
+    expect(result.reasonCode).toBe('date');
+    expect(result.binanceApi.transactionCount).toBe(0);
+    expect(result.binanceApi.provider).toBe('remote');
+  });
 });

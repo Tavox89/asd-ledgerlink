@@ -802,7 +802,12 @@ function buildRemoteVerifierResult(
 ): BinancePayAuthorizationResult {
   const authorized = Boolean(response.authorized);
   const evidence = normalizeRemoteEvidence(response.evidence);
-  const reasonCode = normalizeReasonCode(response.reasonCode, authorized);
+  const transactionCount = Math.max(0, Math.trunc(toNumberValue(response.transactionCount) ?? 0));
+  const remoteReasonCode = normalizeReasonCode(response.reasonCode, authorized);
+  const reasonCode =
+    !authorized && transactionCount === 0 && ['reference', 'name', 'amount'].includes(remoteReasonCode)
+      ? 'date'
+      : remoteReasonCode;
   const errorCode = toOptionalString(response.errorCode);
   const riskFlags = Array.isArray(response.riskFlags) ? response.riskFlags.filter(Boolean) : [];
   if (errorCode && !riskFlags.includes('binance_verifier_error')) {
@@ -820,7 +825,7 @@ function buildRemoteVerifierResult(
     evidence: null,
     binanceApi: {
       ...baseApiSummary(true, true, window, 'remote'),
-      transactionCount: Math.max(0, Math.trunc(toNumberValue(response.transactionCount) ?? 0)),
+      transactionCount,
       matchedTransactionId: toOptionalString(response.matchedTransactionId) ?? evidence?.transactionId ?? null,
       matchMode: normalizeMatchMode(response.matchMode ?? evidence?.matchMode),
       dateStrategy: normalizeDateStrategy(response.dateStrategy ?? evidence?.dateStrategy),
