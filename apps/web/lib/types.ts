@@ -285,6 +285,38 @@ export interface VerificationRecord {
     authScore?: number | null;
     riskFlags: string[];
   } | null;
+  binanceApi?: {
+    checked: boolean;
+    configured: boolean;
+    windowStart?: string | null;
+    windowEnd?: string | null;
+    transactionCount: number;
+    matchedTransactionId?: string | null;
+    matchMode: 'both' | 'reference_only' | 'name_only' | 'none';
+    dateStrategy: 'exact_window' | 'same_day' | null;
+    errorCode?: string;
+    evidence?: {
+      source: 'binance_api';
+      transactionId?: string | null;
+      orderType?: string | null;
+      transactionTime?: string | null;
+      amount?: number | null;
+      currency?: string | null;
+      assetSymbol?: string | null;
+      payerName?: string | null;
+      payerBinanceId?: string | null;
+      receiverName?: string | null;
+      receiverBinanceId?: string | null;
+      receiverAccountId?: string | null;
+      receiverEmail?: string | null;
+      receiverMatched: boolean | 'unknown';
+      matchMode: 'both' | 'reference_only' | 'name_only' | 'none';
+      dateStrategy: 'exact_window' | 'same_day' | null;
+      referenceMatched: boolean;
+      nameMatched: boolean;
+      amountMatched: boolean;
+    } | null;
+  };
   canTreatAsConfirmed: boolean;
   bestMatch?: MatchRecord | null;
   strongestEmail?: InboundEmailRecord | null;

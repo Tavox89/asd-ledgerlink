@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { CreateManualVerificationInput } from '@ledgerlink/shared';
-import { Prisma } from '@prisma/client';
 
 const loadVerificationCandidateEmails = vi.fn();
 const evaluateExactAuthorization = vi.fn();
+const evaluateBinancePayAuthorization = vi.fn();
 const pullGmailPubSubMessages = vi.fn();
 const getCompanyBySlugOrThrow = vi.fn();
 
@@ -18,7 +18,7 @@ vi.mock('../pubsub/pubsub.service', () => ({
 }));
 
 vi.mock('./exact-authorization', async () => {
-  const actual = await vi.importActual<typeof import('./exact-authorization')>('./exact-authorization');
+  const actual = await vi.importActual<Record<string, unknown>>('./exact-authorization');
 
   return {
     ...actual,
@@ -26,6 +26,10 @@ vi.mock('./exact-authorization', async () => {
     evaluateExactAuthorization,
   };
 });
+
+vi.mock('./binance-pay-authorization', () => ({
+  evaluateBinancePayAuthorization,
+}));
 
 function buildInput(overrides: Partial<CreateManualVerificationInput> = {}): CreateManualVerificationInput {
   return {
@@ -38,47 +42,6 @@ function buildInput(overrides: Partial<CreateManualVerificationInput> = {}): Cre
     cuentaDestinoUltimos4: null,
     nombreClienteOpcional: null,
     notas: null,
-    ...overrides,
-  };
-}
-
-function buildCandidateEmail(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 'email-1',
-    gmailMessageId: 'gmail-email-1',
-    senderMatchType: 'EMAIL',
-    fromAddress: 'donotreply@binance.com',
-    subject: 'You received an incoming transfer',
-    internalDate: new Date('2026-04-26T22:36:08.000Z'),
-    receivedAt: new Date('2026-04-26T22:36:20.000Z'),
-    authenticityStatus: 'HIGH',
-    authScore: 95,
-    authenticityFlags: {
-      riskFlags: [],
-      flags: {
-        sender_allowed: true,
-      },
-    },
-    parsedNotification: {
-      id: 'parsed-1',
-      inboundEmailId: 'email-1',
-      parserName: 'binance-parser',
-      bankName: 'Binance',
-      reference: '428221485342556160',
-      amount: new Prisma.Decimal(5),
-      currency: 'USD',
-      transferAt: new Date('2026-04-26T22:36:08.000Z'),
-      sender: 'donotreply@binance.com',
-      subject: 'You received an incoming transfer',
-      destinationAccountLast4: null,
-      originatorName: 'Edelynr',
-      confidenceScore: 90,
-      extractedData: {
-        assetSymbol: 'USDT',
-      },
-      createdAt: new Date('2026-04-26T22:36:20.000Z'),
-      updatedAt: new Date('2026-04-26T22:36:20.000Z'),
-    },
     ...overrides,
   };
 }
@@ -268,60 +231,51 @@ describe('verification service auto-refresh', () => {
     });
   });
 
-  it('filters candidate evidence to Binance-only emails for Binance authorization', async () => {
+  it('authorizes Binance through the official Binance Pay API evaluator', async () => {
     const { authorizeBinanceVerification } = await import('./verifications.service');
 
-    const binanceCandidate = buildCandidateEmail();
-    const zelleCandidate = buildCandidateEmail({
-      id: 'email-zelle-1',
-      gmailMessageId: 'gmail-zelle-1',
-      subject: 'Notification - GUILLERMO DIAZ ORTIZ sent you $10.00.',
-      fromAddress: 'donotreply@amerantbank.com',
-      parsedNotification: {
-        id: 'parsed-zelle-1',
-        inboundEmailId: 'email-zelle-1',
-        parserName: 'generic-bank-parser',
-        bankName: 'Banco de Venezuela',
-        reference: '760045800',
-        amount: new Prisma.Decimal(10),
-        currency: 'USD',
-        transferAt: new Date('2026-04-26T22:36:08.000Z'),
-        sender: 'donotreply@amerantbank.com',
-        subject: 'Notification - GUILLERMO DIAZ ORTIZ sent you $10.00.',
-        destinationAccountLast4: null,
-        originatorName: 'GUILLERMO DIAZ ORTIZ',
-        confidenceScore: 88,
-        extractedData: {},
-        createdAt: new Date('2026-04-26T22:36:20.000Z'),
-        updatedAt: new Date('2026-04-26T22:36:20.000Z'),
-      },
-    });
-
-    loadVerificationCandidateEmails.mockResolvedValue({
-      window: {
-        operationAt: new Date('2026-04-26T22:36:08.000Z'),
-        expectedWindowFrom: new Date('2026-04-26T19:36:08.000Z'),
-        expectedWindowTo: new Date('2026-04-27T01:36:08.000Z'),
-      },
-      candidateEmails: [binanceCandidate, zelleCandidate],
-    });
-
-    evaluateExactAuthorization.mockReturnValue({
+    evaluateBinancePayAuthorization.mockResolvedValue({
       authorized: true,
       reasonCode: 'authorized',
       candidateCount: 1,
       senderMatchType: 'email',
-      evidence: {
-        id: 'email-1',
-        gmailMessageId: 'gmail-email-1',
-        senderMatchType: 'email',
+      evidence: null,
+      binanceApi: {
+        checked: true,
+        configured: true,
+        windowStart: '2026-04-26T04:00:00.000Z',
+        windowEnd: '2026-04-27T03:59:59.999Z',
+        transactionCount: 1,
+        matchedTransactionId: '428221485342556160',
+        matchMode: 'both',
+        dateStrategy: 'exact_window',
+        evidence: {
+          source: 'binance_api',
+          transactionId: '428221485342556160',
+          orderType: 'C2C',
+          transactionTime: '2026-04-26T22:36:08.000Z',
+          amount: 5,
+          currency: 'USD',
+          assetSymbol: 'USDT',
+          payerName: 'Edelynr',
+          payerBinanceId: 'payer-1',
+          receiverName: 'Gedcorp',
+          receiverBinanceId: 'receiver-1',
+          receiverAccountId: null,
+          receiverEmail: null,
+          receiverMatched: true,
+          matchMode: 'both',
+          dateStrategy: 'exact_window',
+          referenceMatched: true,
+          nameMatched: true,
+          amountMatched: true,
+        },
       },
       strongestEmail: null,
       strongestAuthStatus: 'high',
-      strongestAuthScore: 95,
+      strongestAuthScore: 100,
       officialSenderMatched: true,
       riskFlags: [],
-      candidateEmails: [binanceCandidate],
     });
 
     const result = await authorizeBinanceVerification(
@@ -336,9 +290,20 @@ describe('verification service auto-refresh', () => {
       }),
     );
 
-    expect(evaluateExactAuthorization).toHaveBeenCalledWith(expect.anything(), [binanceCandidate]);
+    expect(evaluateBinancePayAuthorization).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: 'company-default',
+        referenceExpected: '428221485342556160',
+        customerNameExpected: 'Edelynr',
+        amountExpected: 5,
+        currency: 'USD',
+      }),
+    );
+    expect(loadVerificationCandidateEmails).not.toHaveBeenCalled();
+    expect(evaluateExactAuthorization).not.toHaveBeenCalled();
     expect(pullGmailPubSubMessages).not.toHaveBeenCalled();
     expect(result.verificationMethod).toBe('binance');
     expect(result.authorized).toBe(true);
+    expect(result.binanceApi.matchedTransactionId).toBe('428221485342556160');
   });
 });

@@ -148,9 +148,9 @@ function extractAlias(text: string) {
 
 function extractCustomerName(text: string) {
   const patterns = [
-    /enrolled as\s*[:\-]?\s*([A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+){0,5})(?=\s+(?:from|send date|fecha|date|monto|amount|today|checking|savings|referencia|ref)\b|$)/i,
+    /enrolled as\s*[:-]?\s*([A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+){0,5})(?=\s+(?:from|send date|fecha|date|monto|amount|today|checking|savings|referencia|ref)\b|$)/i,
     /(?:to|para)\s+([A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+){0,5})(?=\s+(?:enrolled as|from|send date|fecha|date|monto|amount|today|checking|savings|referencia|ref)\b|$)/i,
-    /(?:nombre|ordenante|originador|cliente|remitente|beneficiario)\s*[:\-]?\s*([A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+){0,5})(?=\s+(?:monto|amount|fecha|date|banco|bank|referencia|ref|notas?|notes?)\b|$)/i,
+    /(?:nombre|ordenante|originador|cliente|remitente|beneficiario)\s*[:-]?\s*([A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+){0,5})(?=\s+(?:monto|amount|fecha|date|banco|bank|referencia|ref|notas?|notes?)\b|$)/i,
   ];
 
   for (const pattern of patterns) {
@@ -234,7 +234,7 @@ export function extractDateCandidate(text: string, referenceDate: Date = new Dat
   }
 
   const slashMatch = normalized.match(
-    /(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:[,\s]+(\d{1,2}:\d{2})(?:\s*(am|pm))?)?/i,
+    /(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:[,\s]+(\d{1,2}:\d{2})(?:\s*(am|pm))?)?/i,
   );
   if (slashMatch) {
     const [, rawDay, rawMonth, rawYear, rawTime, meridiem] = slashMatch;

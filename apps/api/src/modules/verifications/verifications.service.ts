@@ -22,6 +22,7 @@ import {
   type ExactAuthorizationSpec,
   type VerificationCandidateEmail,
 } from './exact-authorization';
+import { evaluateBinancePayAuthorization } from './binance-pay-authorization';
 import { normalizeComparable } from '../email-processing/helpers';
 
 interface VerificationAutoRefreshResult {
@@ -525,7 +526,23 @@ export async function authorizeBinanceVerification(
   companySlug: string,
   input: CreateManualVerificationInput,
 ) {
-  return authorizeVerificationWithProfile(companySlug, input, BINANCE_PROFILE);
+  const company = await getCompanyBySlugOrThrow(companySlug);
+  const normalizedInput = normalizeInputForProfile(input, BINANCE_PROFILE);
+  const spec = buildExactAuthorizationSpec(company.id, normalizedInput);
+  const exact = await evaluateBinancePayAuthorization(spec);
+
+  return {
+    companyId: company.id,
+    companySlug: company.slug,
+    verificationMethod: 'binance',
+    authorized: exact.authorized,
+    reasonCode: exact.reasonCode,
+    candidateCount: exact.candidateCount,
+    senderMatchType: exact.senderMatchType,
+    evidence: exact.evidence,
+    binanceApi: exact.binanceApi,
+    autoRefresh: defaultAutoRefreshResult(),
+  };
 }
 
 export async function lookupVerification(
@@ -539,7 +556,51 @@ export async function lookupBinanceVerification(
   companySlug: string,
   input: CreateManualVerificationInput,
 ) {
-  return lookupVerificationWithProfile(companySlug, input, BINANCE_PROFILE);
+  const company = await getCompanyBySlugOrThrow(companySlug);
+  const normalizedInput = normalizeInputForProfile(input, BINANCE_PROFILE);
+  const lookup = buildLookupTransfer(company, normalizedInput);
+  const spec = buildExactAuthorizationSpec(company.id, normalizedInput);
+  const exact = await evaluateBinancePayAuthorization(spec);
+  const status = exact.authorized ? 'preconfirmed' : 'pending';
+  const now = new Date().toISOString();
+
+  return {
+    id: 'lookup',
+    persisted: false,
+    verificationMethod: 'binance',
+    transfer: {
+      ...lookup.transfer,
+      expectedBank: 'Binance',
+      status,
+      matchSummary: exact.authorized
+        ? {
+            score: exact.strongestAuthScore ?? 100,
+            status: 'preconfirmed',
+            criticalFlags: [],
+          }
+        : null,
+      updatedAt: now,
+      matchCount: exact.authorized ? 1 : 0,
+    },
+    status,
+    authorized: exact.authorized,
+    reasonCode: exact.reasonCode,
+    senderMatchType: exact.senderMatchType,
+    candidateCount: exact.candidateCount,
+    evidence: exact.evidence,
+    binanceApi: exact.binanceApi,
+    canTreatAsConfirmed: exact.authorized,
+    bestMatch: null,
+    strongestEmail: null,
+    strongestAuthStatus: exact.strongestAuthStatus,
+    strongestAuthScore: exact.strongestAuthScore,
+    officialSenderMatched: exact.officialSenderMatched,
+    riskFlags: exact.riskFlags,
+    autoRefresh: defaultAutoRefreshResult(),
+    matchCount: exact.authorized ? 1 : 0,
+    createdAt: lookup.transfer.createdAt,
+    updatedAt: now,
+  };
 }
 
 export async function listVerifications(companySlug: string) {

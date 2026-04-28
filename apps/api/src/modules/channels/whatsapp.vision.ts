@@ -22,20 +22,26 @@ function normalizeCurrency(value?: string | null): CurrencyCode | null {
 function parseJsonObject<T>(value: string): T | null {
   try {
     return JSON.parse(value) as T;
-  } catch {}
+  } catch {
+    // Continue with fenced/embedded JSON recovery below.
+  }
 
   const fencedMatch = value.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fencedMatch?.[1]) {
     try {
       return JSON.parse(fencedMatch[1].trim()) as T;
-    } catch {}
+    } catch {
+      // Continue with embedded JSON recovery below.
+    }
   }
 
   const objectMatch = value.match(/\{[\s\S]*\}/);
   if (objectMatch?.[0]) {
     try {
       return JSON.parse(objectMatch[0]) as T;
-    } catch {}
+    } catch {
+      // Return null when no recoverable JSON payload is present.
+    }
   }
 
   return null;

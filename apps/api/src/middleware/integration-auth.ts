@@ -8,6 +8,8 @@ import {
 } from '../modules/integration-tokens/integration-tokens.service';
 
 declare global {
+  // Express exposes request/response locals through namespace augmentation.
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Locals {
       integrationTokenAuth?: AuthenticatedIntegrationToken;

@@ -41,6 +41,30 @@ function methodLabel(method: VerificationFormMode | string | null | undefined) {
   return method === 'binance' ? 'Binance' : 'Zelle';
 }
 
+function binanceMatchModeLabel(mode: string | null | undefined) {
+  switch (mode) {
+    case 'both':
+      return 'ID de orden y nombre';
+    case 'reference_only':
+      return 'ID de orden';
+    case 'name_only':
+      return 'Nombre del pagador';
+    default:
+      return 'Sin coincidencia';
+  }
+}
+
+function binanceDateStrategyLabel(strategy: string | null | undefined) {
+  switch (strategy) {
+    case 'exact_window':
+      return 'ventana exacta';
+    case 'same_day':
+      return 'mismo día';
+    default:
+      return 'sin fecha válida';
+  }
+}
+
 function inferVerificationMethod(result: VerificationRecord | null): VerificationFormMode {
   return result?.verificationMethod === 'binance' || result?.transfer.expectedBank === 'Binance'
     ? 'binance'
@@ -330,7 +354,11 @@ export function ManualVerificationView() {
                   </div>
                   <p className="mt-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">
                     {methodLabel(inferVerificationMethod(latestResult))} ·{' '}
-                    {latestResult.persisted ? 'Solicitud registrada' : 'Consulta en vivo del buzón'}
+                    {latestResult.persisted
+                      ? 'Solicitud registrada'
+                      : inferVerificationMethod(latestResult) === 'binance'
+                        ? 'Consulta oficial Binance'
+                        : 'Consulta en vivo del buzón'}
                   </p>
                   <p className="mt-3 text-lg font-semibold">
                     {displayReference(latestResult.transfer.referenceExpected)} ·{' '}
@@ -352,45 +380,94 @@ export function ManualVerificationView() {
                       {renderAutoRefreshMessage(latestResult)}
                     </div>
                   ) : null}
+                  {latestResult.binanceApi?.checked ? (
+                    <div className="mt-3 rounded-2xl border border-yellow-200/70 bg-yellow-50/80 px-4 py-3 text-sm text-yellow-950 dark:border-yellow-900/60 dark:bg-yellow-950/30 dark:text-yellow-100">
+                      Binance API: {latestResult.binanceApi.transactionCount} transacción(es) revisada(s)
+                      {latestResult.binanceApi.evidence
+                        ? ` · Coincidencia por ${binanceMatchModeLabel(latestResult.binanceApi.matchMode)} · Fecha por ${binanceDateStrategyLabel(latestResult.binanceApi.dateStrategy)}`
+                        : latestResult.binanceApi.errorCode
+                          ? ` · Error: ${latestResult.binanceApi.errorCode}`
+                          : ''}
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="rounded-2xl border border-border/60 p-4">
-                    <p className="text-sm text-muted-foreground">Correo de evidencia elegido</p>
-                    <p className="mt-2 font-semibold">
-                      {latestResult.evidence?.subject ??
-                        latestResult.strongestEmail?.subject ??
-                        (latestResult.evidence || latestResult.strongestEmail
-                          ? 'Correo del buzón seleccionado'
-                          : 'Aún no hay correo candidato')}
-                    </p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {latestResult.evidence?.senderAddress ?? latestResult.strongestEmail?.fromAddress ?? 'Esperando evidencia'}
-                    </p>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Nombre extraído del pago:{' '}
-                      {latestResult.evidence?.originatorName ??
-                        latestResult.strongestEmail?.parsedNotification?.originatorName ??
-                        'Sin nombre detectado'}
-                    </p>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Tipo de coincidencia del remitente:{' '}
-                      {translateLabel(latestResult.evidence?.senderMatchType ?? latestResult.senderMatchType)}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Fecha de llegada al buzón:{' '}
-                      {formatDateTime(
-                        latestResult.evidence?.arrivalTimestamp ??
-                          latestResult.strongestEmail?.internalDate ??
-                          latestResult.strongestEmail?.receivedAt ??
-                          null,
-                      )}
-                    </p>
-                    {latestResult.evidence?.parsedPaymentTimestamp ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Fecha extraída del cuerpo: {formatDateTime(latestResult.evidence.parsedPaymentTimestamp)}
-                      </p>
-                    ) : null}
+                    {latestResult.binanceApi?.evidence ? (
+                      <>
+                        <p className="text-sm text-muted-foreground">Evidencia oficial Binance</p>
+                        <p className="mt-2 font-semibold">
+                          Orden {latestResult.binanceApi.evidence.transactionId ?? 'sin ID'}
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Pagador: {latestResult.binanceApi.evidence.payerName ?? 'Sin nombre detectado'}
+                        </p>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Monto API:{' '}
+                          {formatMoney(
+                            latestResult.binanceApi.evidence.amount ?? latestResult.transfer.amountExpected,
+                            latestResult.binanceApi.evidence.currency ?? latestResult.transfer.currency,
+                          )}
+                          {latestResult.binanceApi.evidence.assetSymbol
+                            ? ` · Activo ${latestResult.binanceApi.evidence.assetSymbol}`
+                            : ''}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Fecha API: {formatDateTime(latestResult.binanceApi.evidence.transactionTime ?? null)}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Coincidencia: {binanceMatchModeLabel(latestResult.binanceApi.evidence.matchMode)} ·{' '}
+                          {binanceDateStrategyLabel(latestResult.binanceApi.evidence.dateStrategy)}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Receptor configurado:{' '}
+                          {latestResult.binanceApi.evidence.receiverMatched === true
+                            ? 'coincide'
+                            : latestResult.binanceApi.evidence.receiverMatched === false
+                              ? 'no coincide'
+                              : 'no informado por Binance'}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-sm text-muted-foreground">Correo de evidencia elegido</p>
+                        <p className="mt-2 font-semibold">
+                          {latestResult.evidence?.subject ??
+                            latestResult.strongestEmail?.subject ??
+                            (latestResult.evidence || latestResult.strongestEmail
+                              ? 'Correo del buzón seleccionado'
+                              : 'Aún no hay correo candidato')}
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {latestResult.evidence?.senderAddress ?? latestResult.strongestEmail?.fromAddress ?? 'Esperando evidencia'}
+                        </p>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Nombre extraído del pago:{' '}
+                          {latestResult.evidence?.originatorName ??
+                            latestResult.strongestEmail?.parsedNotification?.originatorName ??
+                            'Sin nombre detectado'}
+                        </p>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Tipo de coincidencia del remitente:{' '}
+                          {translateLabel(latestResult.evidence?.senderMatchType ?? latestResult.senderMatchType)}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Fecha de llegada al buzón:{' '}
+                          {formatDateTime(
+                            latestResult.evidence?.arrivalTimestamp ??
+                              latestResult.strongestEmail?.internalDate ??
+                              latestResult.strongestEmail?.receivedAt ??
+                              null,
+                          )}
+                        </p>
+                        {latestResult.evidence?.parsedPaymentTimestamp ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Fecha extraída del cuerpo: {formatDateTime(latestResult.evidence.parsedPaymentTimestamp)}
+                          </p>
+                        ) : null}
+                      </>
+                    )}
                   </div>
                   <div className="rounded-2xl border border-border/60 p-4">
                     <p className="text-sm text-muted-foreground">Resultado de autorización</p>
