@@ -163,6 +163,19 @@ function extractCustomerName(text: string) {
   return null;
 }
 
+function sanitizeCustomerName(value?: string | null) {
+  const normalized = normalizeDisplayText(value);
+  if (!normalized) {
+    return null;
+  }
+
+  if (/[A-Z0-9._%+-]+\s*@\s*[A-Z0-9.-]+\s*\.\s*[A-Z]{2,}/i.test(normalized)) {
+    return null;
+  }
+
+  return normalized;
+}
+
 export function normalizeWhatsAppPhone(value?: string | null) {
   if (!value) {
     return null;
@@ -357,11 +370,12 @@ export function mergeCollectedVerificationInput(
     existingState?.reference ??
     null;
 
-  const customerName =
+  const customerName = sanitizeCustomerName(
     textExtraction.customerName ??
-    imageFields?.customerName ??
-    existingState?.customerName ??
-    null;
+      imageFields?.customerName ??
+      existingState?.customerName ??
+      null,
+  );
 
   const alias =
     textExtraction.alias ??

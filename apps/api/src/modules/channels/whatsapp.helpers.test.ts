@@ -109,6 +109,29 @@ describe('whatsapp helpers', () => {
     expect(merged.currencySource).toBe('text');
   });
 
+  it('does not treat recipient emails from Binance screenshots as payer names', () => {
+    const merged = mergeCollectedVerificationInput(
+      null,
+      extractVerificationFromText(''),
+      {
+        isTransferProof: true,
+        reference: '428221485342556160',
+        customerName: 'ordenesdecompramayorclub@gmail.com',
+        alias: 'Gedcorp',
+        amount: 5,
+        currency: 'USD',
+        date: null,
+        time: null,
+        bank: 'Binance',
+        confidence: 90,
+      },
+    );
+
+    expect(merged.customerName).toBeNull();
+    expect(merged.alias).toBe('Gedcorp');
+    expect(merged.reference).toBe('428221485342556160');
+  });
+
   it('builds a whole-day secondary strategy when only the date is available', () => {
     const strategies = buildVerificationStrategies(
       {
