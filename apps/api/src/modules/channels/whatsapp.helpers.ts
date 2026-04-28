@@ -602,6 +602,18 @@ function translateBinanceApiError(errorCode?: string | null) {
     return 'Binance API no esta configurada en el servidor';
   }
 
+  if (normalized.includes('binance_verifier_token_missing')) {
+    return 'el verificador local de Binance no tiene token interno configurado';
+  }
+
+  if (normalized.includes('binance_verifier_timeout')) {
+    return 'el verificador local de Binance no respondio a tiempo';
+  }
+
+  if (normalized.includes('binance_verifier')) {
+    return 'el verificador local de Binance no pudo completar la consulta';
+  }
+
   return 'Binance API devolvio un error al consultar la operacion';
 }
 

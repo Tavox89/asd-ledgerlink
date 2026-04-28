@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { env } from '../../config/env';
 import {
   buildBinancePayRequestWindow,
+  evaluateBinancePayAuthorization,
   evaluateBinancePayTransactions,
   type BinancePayTransaction,
 } from './binance-pay-authorization';
@@ -43,6 +45,12 @@ function buildTransaction(overrides: Partial<BinancePayTransaction> = {}): Binan
 }
 
 describe('Binance Pay authorization', () => {
+  afterEach(() => {
+    env.BINANCE_VERIFIER_URL = '';
+    env.BINANCE_VERIFIER_TOKEN = '';
+    vi.restoreAllMocks();
+  });
+
   it('authorizes by exact Binance order id without customer name', () => {
     const result = evaluateBinancePayTransactions(buildSpec(), [buildTransaction()], 'receiver-1');
 
@@ -153,5 +161,72 @@ describe('Binance Pay authorization', () => {
 
     expect(window.startTime.toISOString()).toBe('2026-04-26T04:00:00.000Z');
     expect(window.endTime.toISOString()).toBe('2026-04-27T03:59:59.999Z');
+  });
+
+  it('uses the remote Binance verifier when configured', async () => {
+    env.BINANCE_VERIFIER_URL = 'https://binance-verifier.example.com';
+    env.BINANCE_VERIFIER_TOKEN = 'test-verifier-token';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          authorized: true,
+          reasonCode: 'authorized',
+          transactionCount: 1,
+          matchedTransactionId: '428221485342556160',
+          matchMode: 'reference_only',
+          dateStrategy: 'exact_window',
+          evidence: {
+            transactionId: '428221485342556160',
+            transactionTime: '2026-04-26T22:36:08.000Z',
+            amount: 5,
+            currency: 'USD',
+            assetSymbol: 'USDT',
+            payerName: 'Edelynr',
+            receiverMatched: true,
+            matchMode: 'reference_only',
+            dateStrategy: 'exact_window',
+            referenceMatched: true,
+            amountMatched: true,
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const result = await evaluateBinancePayAuthorization(buildSpec());
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://binance-verifier.example.com/verify/binance');
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      method: 'POST',
+      headers: expect.objectContaining({
+        Authorization: 'Bearer test-verifier-token',
+        'Content-Type': 'application/json',
+      }),
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      referenceExpected: '428221485342556160',
+      amountExpected: 5,
+      currency: 'USD',
+      operationAt: '2026-04-26T22:36:08.000Z',
+    });
+    expect(result.authorized).toBe(true);
+    expect(result.binanceApi.provider).toBe('remote');
+    expect(result.binanceApi.evidence?.payerName).toBe('Edelynr');
+    expect(result.riskFlags).toContain('binance_remote_verifier');
+  });
+
+  it('reports a remote verifier configuration error when URL exists without token', async () => {
+    env.BINANCE_VERIFIER_URL = 'https://binance-verifier.example.com';
+    env.BINANCE_VERIFIER_TOKEN = '';
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+
+    const result = await evaluateBinancePayAuthorization(buildSpec());
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.authorized).toBe(false);
+    expect(result.binanceApi.provider).toBe('remote');
+    expect(result.binanceApi.errorCode).toBe('binance_verifier_token_missing');
   });
 });

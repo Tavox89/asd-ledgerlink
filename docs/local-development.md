@@ -25,6 +25,16 @@ OPENAI_API_KEY=...
 OPENAI_VISION_MODEL=gpt-4o
 ```
 
+Optional Binance remote verifier mode:
+
+```env
+BINANCE_VERIFIER_URL=https://binance-verifier.example.com
+BINANCE_VERIFIER_TOKEN=...
+BINANCE_VERIFIER_TIMEOUT_MS=10000
+```
+
+When `BINANCE_VERIFIER_URL` is empty, the API keeps using `BINANCE_API_KEY` and `BINANCE_API_SECRET` directly from this server. When it is set, LedgerLink sends only the Binance verification payload to the private verifier and does not require direct Binance connectivity from the main API host.
+
 ## Database
 
 ```bash
@@ -56,7 +66,7 @@ pnpm --filter @ledgerlink/web dev
 4. Register the Gmail watch when you also want Pub/Sub-based ingestion.
 5. Leave the local worker enabled for automatic polling, or pull Pub/Sub messages manually once `GOOGLE_APPLICATION_CREDENTIALS` is configured.
 6. Inspect `/companies/<slug>/emails`.
-7. Use `/companies/<slug>/verifications` to look up Zelle stored inbox evidence with `reference`, `name`, or both, plus `amount + date` after the email already arrived. If the first lookup still has no exact candidate, the backend now does one Pub/Sub pull and retries automatically. Binance mode consults Binance API directly and does not use Gmail evidence; Binance API keys must allow the server egress IP or LedgerLink will return an explicit Binance API/IP restriction message.
+7. Use `/companies/<slug>/verifications` to look up Zelle stored inbox evidence with `reference`, `name`, or both, plus `amount + date` after the email already arrived. If the first lookup still has no exact candidate, the backend now does one Pub/Sub pull and retries automatically. Binance mode consults Binance API directly or delegates to `BINANCE_VERIFIER_URL` when configured, and does not use Gmail evidence. Binance API keys must allow the active verifier egress IP or LedgerLink will return an explicit Binance API/IP restriction message.
 8. Create an integration token with `POST /companies/:companySlug/integration-tokens` when you want to test the external bearer-protected verification contract.
 9. Use `POST /companies/:companySlug/verifications/authorize` with `Authorization: Bearer <token>` to exercise the same exact yes/no decision an external checkout or backoffice flow would consume.
 10. Use `POST /companies/:companySlug/verifications/lookup` with `Authorization: Bearer <token>` when the external bridge needs the richer operator-style payload.

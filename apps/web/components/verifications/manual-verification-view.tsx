@@ -77,6 +77,9 @@ function binanceReasonLabel(result: VerificationRecord) {
     if (normalized.includes('restricted location') || normalized.includes('eligibility')) {
       return 'restricción de ubicación/IP en Binance API';
     }
+    if (normalized.includes('binance_verifier')) {
+      return 'error del verificador local de Binance';
+    }
     return 'error de Binance API';
   }
 

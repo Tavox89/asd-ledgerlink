@@ -1,6 +1,11 @@
 import { createHmac } from 'node:crypto';
 
-import type { CreateManualVerificationInput, SenderMatchType, VerificationReasonCode } from '@ledgerlink/shared';
+import {
+  verificationReasonCodeValues,
+  type CreateManualVerificationInput,
+  type SenderMatchType,
+  type VerificationReasonCode,
+} from '@ledgerlink/shared';
 
 import { env } from '../../config/env';
 import { dayjs } from '../../lib/dayjs';
@@ -15,6 +20,7 @@ type UnknownRecord = Record<string, unknown>;
 
 export type BinancePayMatchMode = 'both' | 'reference_only' | 'name_only' | 'none';
 export type BinancePayDateStrategy = 'exact_window' | 'same_day' | null;
+export type BinancePayProvider = 'direct' | 'remote';
 
 export interface BinancePayInfo {
   name?: string;
@@ -76,6 +82,7 @@ export interface BinancePayAuthorizationEvidence {
 export interface BinancePayApiSummary {
   checked: boolean;
   configured: boolean;
+  provider?: BinancePayProvider;
   windowStart: string | null;
   windowEnd: string | null;
   transactionCount: number;
@@ -119,8 +126,67 @@ interface TransactionEvaluation {
   dateStrategy: BinancePayDateStrategy;
 }
 
+interface RemoteBinanceVerifierEvidence {
+  source?: string;
+  transactionId?: string | number | null;
+  orderType?: string | null;
+  transactionTime?: string | number | null;
+  amount?: string | number | null;
+  currency?: string | null;
+  assetSymbol?: string | null;
+  payerName?: string | null;
+  payerBinanceId?: string | number | null;
+  receiverName?: string | null;
+  receiverBinanceId?: string | number | null;
+  receiverAccountId?: string | number | null;
+  receiverEmail?: string | null;
+  receiverMatched?: boolean | 'unknown' | null;
+  matchMode?: BinancePayMatchMode | null;
+  dateStrategy?: BinancePayDateStrategy;
+  referenceMatched?: boolean | null;
+  nameMatched?: boolean | null;
+  amountMatched?: boolean | null;
+}
+
+interface RemoteBinanceVerifierResponse {
+  authorized?: boolean;
+  reasonCode?: string | null;
+  transactionCount?: number | null;
+  matchedTransactionId?: string | number | null;
+  matchMode?: BinancePayMatchMode | null;
+  dateStrategy?: BinancePayDateStrategy;
+  evidence?: RemoteBinanceVerifierEvidence | null;
+  errorCode?: string | null;
+  riskFlags?: string[] | null;
+}
+
 function isBinanceApiConfigured() {
   return Boolean(env.BINANCE_API_KEY.trim() && env.BINANCE_API_SECRET.trim());
+}
+
+function getRemoteVerifierUrl() {
+  return env.BINANCE_VERIFIER_URL.trim();
+}
+
+function isRemoteVerifierConfigured() {
+  return Boolean(getRemoteVerifierUrl() && env.BINANCE_VERIFIER_TOKEN.trim());
+}
+
+function activeProvider(): BinancePayProvider {
+  return getRemoteVerifierUrl() ? 'remote' : 'direct';
+}
+
+function isBinanceAuthorizationConfigured() {
+  return getRemoteVerifierUrl() ? isRemoteVerifierConfigured() : isBinanceApiConfigured();
+}
+
+function buildRemoteVerifierEndpoint() {
+  const baseUrl = getRemoteVerifierUrl().replace(/\/+$/, '');
+  if (baseUrl.endsWith('/verify/binance')) {
+    return baseUrl;
+  }
+
+  return `${baseUrl}/verify/binance`;
 }
 
 function toStringValue(value: unknown) {
@@ -223,6 +289,81 @@ export async function fetchBinancePayTransactions(window: BinancePayRequestWindo
   }
 
   return readDataRows(payload);
+}
+
+function computeToleranceMinutes(spec: ExactAuthorizationSpec) {
+  const before = Math.abs(spec.operationAt.getTime() - spec.expectedWindowFrom.getTime());
+  const after = Math.abs(spec.expectedWindowTo.getTime() - spec.operationAt.getTime());
+  return Math.max(1, Math.round(Math.max(before, after) / 60000));
+}
+
+function buildRemoteVerifierPayload(spec: ExactAuthorizationSpec) {
+  return {
+    referenceExpected: spec.referenceExpected,
+    customerNameExpected: spec.customerNameExpected,
+    amountExpected: spec.amountExpected,
+    currency: spec.currency,
+    operationAt: spec.operationAt.toISOString(),
+    expectedWindowFrom: spec.expectedWindowFrom.toISOString(),
+    expectedWindowTo: spec.expectedWindowTo.toISOString(),
+    toleranceMinutes: computeToleranceMinutes(spec),
+  };
+}
+
+function parseJsonPayload(value: string) {
+  try {
+    return JSON.parse(value) as UnknownRecord;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchRemoteBinanceVerification(spec: ExactAuthorizationSpec) {
+  if (!getRemoteVerifierUrl()) {
+    throw new Error('binance_verifier_url_missing');
+  }
+  if (!env.BINANCE_VERIFIER_TOKEN.trim()) {
+    throw new Error('binance_verifier_token_missing');
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), env.BINANCE_VERIFIER_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(buildRemoteVerifierEndpoint(), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.BINANCE_VERIFIER_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(buildRemoteVerifierPayload(spec)),
+      signal: controller.signal,
+    });
+
+    const bodyText = await response.text();
+    const payload = parseJsonPayload(bodyText);
+    if (!response.ok) {
+      const message =
+        toStringValue(payload?.errorCode ?? payload?.message ?? payload?.error) ||
+        bodyText.slice(0, 200) ||
+        'Binance verifier request failed.';
+      throw new Error(`binance_verifier_http_${response.status}:${message}`);
+    }
+
+    if (!payload) {
+      throw new Error('binance_verifier_invalid_json');
+    }
+
+    return payload as RemoteBinanceVerifierResponse;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('binance_verifier_timeout');
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function tokenizeName(value?: string | null) {
@@ -573,14 +714,78 @@ function reasonFromEvaluations(
   return 'date';
 }
 
+const verificationReasonCodes = new Set<string>(verificationReasonCodeValues);
+
+function normalizeReasonCode(value: unknown, authorized: boolean): VerificationReasonCode {
+  if (authorized) {
+    return 'authorized';
+  }
+
+  const reason = toStringValue(value).toLowerCase();
+  if (verificationReasonCodes.has(reason)) {
+    return reason as VerificationReasonCode;
+  }
+
+  return 'sender';
+}
+
+function normalizeMatchMode(value: unknown): BinancePayMatchMode {
+  return value === 'both' || value === 'reference_only' || value === 'name_only'
+    ? value
+    : 'none';
+}
+
+function normalizeDateStrategy(value: unknown): BinancePayDateStrategy {
+  return value === 'exact_window' || value === 'same_day' ? value : null;
+}
+
+function normalizeReceiverMatched(value: unknown): boolean | 'unknown' {
+  return typeof value === 'boolean' ? value : 'unknown';
+}
+
+function normalizeRemoteEvidence(value: RemoteBinanceVerifierEvidence | null | undefined) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const transactionTime =
+    typeof value.transactionTime === 'number'
+      ? new Date(value.transactionTime).toISOString()
+      : toOptionalString(value.transactionTime);
+
+  return {
+    source: 'binance_api',
+    transactionId: toOptionalString(value.transactionId),
+    orderType: toOptionalString(value.orderType),
+    transactionTime,
+    amount: toNumberValue(value.amount),
+    currency: toOptionalString(value.currency) ?? 'USD',
+    assetSymbol: toOptionalString(value.assetSymbol),
+    payerName: toOptionalString(value.payerName),
+    payerBinanceId: toOptionalString(value.payerBinanceId),
+    receiverName: toOptionalString(value.receiverName),
+    receiverBinanceId: toOptionalString(value.receiverBinanceId),
+    receiverAccountId: toOptionalString(value.receiverAccountId),
+    receiverEmail: toOptionalString(value.receiverEmail),
+    receiverMatched: normalizeReceiverMatched(value.receiverMatched),
+    matchMode: normalizeMatchMode(value.matchMode),
+    dateStrategy: normalizeDateStrategy(value.dateStrategy),
+    referenceMatched: Boolean(value.referenceMatched),
+    nameMatched: Boolean(value.nameMatched),
+    amountMatched: Boolean(value.amountMatched),
+  } satisfies BinancePayAuthorizationEvidence;
+}
+
 function baseApiSummary(
   configured: boolean,
   checked: boolean,
   window: BinancePayRequestWindow | null,
+  provider: BinancePayProvider = activeProvider(),
 ): BinancePayApiSummary {
   return {
     checked,
     configured,
+    provider,
     windowStart: window?.startTime.toISOString() ?? null,
     windowEnd: window?.endTime.toISOString() ?? null,
     transactionCount: 0,
@@ -588,6 +793,45 @@ function baseApiSummary(
     matchMode: 'none',
     dateStrategy: null,
     evidence: null,
+  };
+}
+
+function buildRemoteVerifierResult(
+  window: BinancePayRequestWindow,
+  response: RemoteBinanceVerifierResponse,
+): BinancePayAuthorizationResult {
+  const authorized = Boolean(response.authorized);
+  const evidence = normalizeRemoteEvidence(response.evidence);
+  const reasonCode = normalizeReasonCode(response.reasonCode, authorized);
+  const errorCode = toOptionalString(response.errorCode);
+  const riskFlags = Array.isArray(response.riskFlags) ? response.riskFlags.filter(Boolean) : [];
+  if (errorCode && !riskFlags.includes('binance_verifier_error')) {
+    riskFlags.push('binance_verifier_error');
+  }
+  if (!riskFlags.includes('binance_remote_verifier')) {
+    riskFlags.push('binance_remote_verifier');
+  }
+
+  return {
+    authorized,
+    reasonCode,
+    candidateCount: authorized ? 1 : 0,
+    senderMatchType: 'none',
+    evidence: null,
+    binanceApi: {
+      ...baseApiSummary(true, true, window, 'remote'),
+      transactionCount: Math.max(0, Math.trunc(toNumberValue(response.transactionCount) ?? 0)),
+      matchedTransactionId: toOptionalString(response.matchedTransactionId) ?? evidence?.transactionId ?? null,
+      matchMode: normalizeMatchMode(response.matchMode ?? evidence?.matchMode),
+      dateStrategy: normalizeDateStrategy(response.dateStrategy ?? evidence?.dateStrategy),
+      evidence,
+      ...(errorCode ? { errorCode } : {}),
+    },
+    strongestEmail: null,
+    strongestAuthStatus: evidence ? 'high' : null,
+    strongestAuthScore: evidence ? 100 : null,
+    officialSenderMatched: evidence?.receiverMatched ?? 'unknown',
+    riskFlags,
   };
 }
 
@@ -608,7 +852,7 @@ function buildResult(
       senderMatchType: 'none',
       evidence: null,
       binanceApi: {
-        ...baseApiSummary(true, true, window),
+        ...baseApiSummary(true, true, window, 'direct'),
         transactionCount: transactions.length,
       },
       strongestEmail: null,
@@ -633,7 +877,7 @@ function buildResult(
     senderMatchType: 'none',
     evidence: null,
     binanceApi: {
-      ...baseApiSummary(true, true, window),
+      ...baseApiSummary(true, true, window, 'direct'),
       transactionCount: transactions.length,
       matchedTransactionId: evidence?.transactionId ?? null,
       matchMode: evidence?.matchMode ?? 'none',
@@ -662,7 +906,8 @@ export async function evaluateBinancePayAuthorization(
   const window = buildBinancePayRequestWindow(spec);
   const hasReference = Boolean(normalizeComparable(spec.referenceExpected));
   const hasName = Boolean(normalizeComparable(spec.customerNameExpected));
-  const configured = isBinanceApiConfigured();
+  const provider = activeProvider();
+  const configured = isBinanceAuthorizationConfigured();
 
   if (!hasReference && !hasName) {
     return {
@@ -671,13 +916,58 @@ export async function evaluateBinancePayAuthorization(
       candidateCount: 0,
       senderMatchType: 'none',
       evidence: null,
-      binanceApi: baseApiSummary(configured, false, window),
+      binanceApi: baseApiSummary(configured, false, window, provider),
       strongestEmail: null,
       strongestAuthStatus: null,
       strongestAuthScore: null,
       officialSenderMatched: 'unknown',
       riskFlags: [],
     };
+  }
+
+  if (provider === 'remote') {
+    if (!configured) {
+      return {
+        authorized: false,
+        reasonCode: 'sender',
+        candidateCount: 0,
+        senderMatchType: 'none',
+        evidence: null,
+        binanceApi: {
+          ...baseApiSummary(false, false, window, 'remote'),
+          errorCode: 'binance_verifier_token_missing',
+        },
+        strongestEmail: null,
+        strongestAuthStatus: null,
+        strongestAuthScore: null,
+        officialSenderMatched: 'unknown',
+        riskFlags: ['binance_verifier_not_configured'],
+      };
+    }
+
+    try {
+      const verifierResult = await fetchRemoteBinanceVerification(spec);
+      return buildRemoteVerifierResult(window, verifierResult);
+    } catch (error) {
+      logger.warn({ err: error }, 'Remote Binance verifier request failed');
+
+      return {
+        authorized: false,
+        reasonCode: 'sender',
+        candidateCount: 0,
+        senderMatchType: 'none',
+        evidence: null,
+        binanceApi: {
+          ...baseApiSummary(true, true, window, 'remote'),
+          errorCode: error instanceof Error ? error.message : 'binance_verifier_error',
+        },
+        strongestEmail: null,
+        strongestAuthStatus: null,
+        strongestAuthScore: null,
+        officialSenderMatched: 'unknown',
+        riskFlags: ['binance_verifier_error'],
+      };
+    }
   }
 
   if (!configured) {
@@ -688,7 +978,7 @@ export async function evaluateBinancePayAuthorization(
       senderMatchType: 'none',
       evidence: null,
       binanceApi: {
-        ...baseApiSummary(false, false, window),
+        ...baseApiSummary(false, false, window, 'direct'),
         errorCode: 'binance_api_not_configured',
       },
       strongestEmail: null,
@@ -712,7 +1002,7 @@ export async function evaluateBinancePayAuthorization(
       senderMatchType: 'none',
       evidence: null,
       binanceApi: {
-        ...baseApiSummary(true, true, window),
+        ...baseApiSummary(true, true, window, 'direct'),
         errorCode: error instanceof Error ? error.message : 'binance_api_error',
       },
       strongestEmail: null,
