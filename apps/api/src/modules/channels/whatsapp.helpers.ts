@@ -479,13 +479,19 @@ export function detectVerificationMethod(input: {
   return 'unknown';
 }
 
-export function getMissingVerificationFields(input: CollectedVerificationInput) {
+export function getMissingVerificationFields(
+  input: CollectedVerificationInput,
+  method: VerificationPaymentMethod = 'zelle',
+) {
   const missing: string[] = [];
   if (!input.reference && !input.customerName) {
     missing.push('referencia o nombre');
   }
   if (input.amount === null || input.amount === undefined) {
     missing.push('monto');
+  }
+  if (method === 'binance' && !input.extractedDate) {
+    missing.push('fecha del pago');
   }
 
   return missing;
@@ -653,7 +659,7 @@ export function translateVerificationReason(
       case 'amount':
         return 'el monto no coincide con la operacion oficial de Binance';
       case 'date':
-        return 'no se encontro la operacion en la fecha consultada. Envia la captura con fecha y hora visibles, o escribe la fecha del pago';
+        return 'no se encontro la operacion en la fecha consultada. Escribe solo la fecha del pago; no hace falta la hora';
       case 'identity_required':
         return 'se requiere ID de orden o nombre del pagador para consultar Binance';
       default:

@@ -183,6 +183,40 @@ describe('whatsapp helpers', () => {
     ).toEqual(['referencia o nombre']);
   });
 
+  it('requires only the payment date as the extra Binance WhatsApp field', () => {
+    expect(
+      getMissingVerificationFields(
+        {
+          reference: '428557229373358081',
+          customerName: null,
+          amount: 3,
+          currency: 'USD',
+          currencySource: 'image',
+          bank: 'Binance',
+          extractedDate: null,
+          extractedTime: null,
+        },
+        'binance',
+      ),
+    ).toEqual(['fecha del pago']);
+
+    expect(
+      getMissingVerificationFields(
+        {
+          reference: '428557229373358081',
+          customerName: null,
+          amount: 3,
+          currency: 'USD',
+          currencySource: 'image',
+          bank: 'Binance',
+          extractedDate: '2026-04-26',
+          extractedTime: null,
+        },
+        'binance',
+      ),
+    ).toEqual([]);
+  });
+
   it('asks for reference or name when image extraction is insufficient', () => {
     expect(buildImageFallbackReply()).toContain('referencia o nombre');
   });

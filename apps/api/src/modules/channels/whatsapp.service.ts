@@ -475,7 +475,7 @@ export async function processIncomingTwilioWebhook(
     imageExtraction,
     mergedInput,
   });
-  const missingFields = getMissingVerificationFields(mergedInput);
+  const missingFields = getMissingVerificationFields(mergedInput, verificationMethod);
   const shouldSendImageFallback =
     Boolean(firstImage) &&
     imageExtraction !== null &&
