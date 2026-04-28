@@ -117,6 +117,14 @@ describe('Binance Pay authorization', () => {
     expect(result.reasonCode).toBe('amount');
   });
 
+  it('rejects by date when no Binance transactions are returned for the queried window', () => {
+    const result = evaluateBinancePayTransactions(buildSpec(), [], 'receiver-1');
+
+    expect(result.authorized).toBe(false);
+    expect(result.reasonCode).toBe('date');
+    expect(result.binanceApi.transactionCount).toBe(0);
+  });
+
   it('uses same-day fallback when outside the exact tolerance window', () => {
     const result = evaluateBinancePayTransactions(
       buildSpec({

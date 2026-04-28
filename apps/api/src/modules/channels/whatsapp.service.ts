@@ -666,9 +666,12 @@ export async function processIncomingTwilioWebhook(
     throw new Error('whatsapp_verification_strategy_missing');
   }
 
+  const selectedBinanceApiSummary = getBinanceApiSummary(selected.result);
   const replyText = selected.result.authorized
     ? buildAuthorizedReply(verificationMethod, mergedInput, selected.strategy.label)
-    : buildBlockedReply(verificationMethod, mergedInput, selected.result.reasonCode, selected.strategy.label);
+    : buildBlockedReply(verificationMethod, mergedInput, selected.result.reasonCode, selected.strategy.label, {
+        binanceApiErrorCode: selectedBinanceApiSummary?.errorCode ?? null,
+      });
 
   await prisma.whatsAppConversation.update({
     where: { id: conversation.id },
@@ -716,7 +719,7 @@ export async function processIncomingTwilioWebhook(
       verificationMethod,
       replyText,
       evidence: selected.result.evidence,
-      binanceApi: getBinanceApiSummary(selected.result),
+      binanceApi: selectedBinanceApiSummary,
     },
     rawPayload: body,
   });

@@ -301,6 +301,50 @@ describe('whatsapp service', () => {
     expect(result.replyText).toContain('Binance.');
   });
 
+  it('returns Binance API error details instead of Gmail sender wording', async () => {
+    const { processIncomingTwilioWebhook } = await import('./whatsapp.service');
+
+    authorizeBinanceVerification.mockResolvedValueOnce({
+      companyId: 'company-default',
+      companySlug: 'default',
+      verificationMethod: 'binance',
+      authorized: false,
+      reasonCode: 'sender',
+      candidateCount: 0,
+      senderMatchType: 'none',
+      evidence: null,
+      binanceApi: {
+        checked: true,
+        configured: true,
+        transactionCount: 0,
+        matchedTransactionId: null,
+        matchMode: 'none',
+        dateStrategy: null,
+        evidence: null,
+        errorCode:
+          "0:Service unavailable from a restricted location according to 'b. Eligibility'",
+      },
+      strongestEmail: null,
+      strongestAuthStatus: null,
+      strongestAuthScore: null,
+      officialSenderMatched: 'unknown',
+      riskFlags: ['binance_api_error'],
+      autoRefresh: { attempted: false, status: 'not_needed', pulled: 0, processed: 0 },
+    });
+
+    const result = await processIncomingTwilioWebhook({
+      From: 'whatsapp:+584121112233',
+      To: 'whatsapp:+10000000000',
+      Body: 'Binance ID de orden 428221485342556160 monto 5 USDT',
+      MessageSid: 'SM-BINANCE-ERROR',
+      NumMedia: '0',
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.replyText).toContain('Binance API rechazo la consulta por restriccion de ubicacion o IP');
+    expect(result.replyText).not.toContain('remitente del correo');
+  });
+
   it('uses a whole-day strategy when only the extracted date is available', async () => {
     const { processIncomingTwilioWebhook } = await import('./whatsapp.service');
 

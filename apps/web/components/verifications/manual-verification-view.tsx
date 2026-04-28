@@ -71,6 +71,51 @@ function inferVerificationMethod(result: VerificationRecord | null): Verificatio
     : 'zelle';
 }
 
+function binanceReasonLabel(result: VerificationRecord) {
+  if (result.binanceApi?.errorCode) {
+    const normalized = result.binanceApi.errorCode.toLowerCase();
+    if (normalized.includes('restricted location') || normalized.includes('eligibility')) {
+      return 'restricción de ubicación/IP en Binance API';
+    }
+    return 'error de Binance API';
+  }
+
+  switch (result.reasonCode) {
+    case 'sender':
+      return 'receptor Binance';
+    case 'reference':
+      return 'ID de orden';
+    case 'name':
+      return 'nombre del pagador';
+    case 'date':
+      return 'fecha consultada';
+    case 'amount':
+      return 'monto';
+    case 'identity_required':
+      return 'ID de orden o nombre requerido';
+    default:
+      return translateReasonCode(result.reasonCode);
+  }
+}
+
+function resultReasonLabel(result: VerificationRecord) {
+  return inferVerificationMethod(result) === 'binance'
+    ? binanceReasonLabel(result)
+    : translateReasonCode(result.reasonCode);
+}
+
+function resultBadgeStatus(result: VerificationRecord) {
+  if (result.authorized) {
+    return 'authorized';
+  }
+
+  if (inferVerificationMethod(result) === 'binance' && result.binanceApi?.errorCode) {
+    return 'error';
+  }
+
+  return result.reasonCode;
+}
+
 function renderAutoRefreshMessage(result: VerificationRecord) {
   const autoRefresh = result.autoRefresh;
   if (!autoRefresh?.attempted) {
@@ -364,11 +409,11 @@ export function ManualVerificationView() {
                 <div className="rounded-2xl border border-border/60 p-4">
                   <div className="flex flex-wrap items-center gap-3">
                     <StatusBadge status={latestResult.status} />
-                    <StatusBadge status={latestResult.authorized ? 'authorized' : latestResult.reasonCode} />
+                    <StatusBadge status={resultBadgeStatus(latestResult)} />
                     <span className="text-sm text-muted-foreground">
                       {latestResult.authorized
                         ? 'La evidencia exacta del pago permite autorización por API'
-                        : `Bloqueado por ${translateReasonCode(latestResult.reasonCode)}`}
+                        : `Bloqueado por ${resultReasonLabel(latestResult)}`}
                     </span>
                   </div>
                   <p className="mt-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">
@@ -506,13 +551,13 @@ export function ManualVerificationView() {
                   <div className="rounded-2xl border border-border/60 p-4">
                     <p className="text-sm text-muted-foreground">Resultado de autorización</p>
                     <div className="mt-2 flex items-center gap-2">
-                      <StatusBadge status={latestResult.authorized ? 'authorized' : latestResult.reasonCode} />
+                      <StatusBadge status={resultBadgeStatus(latestResult)} />
                       <span className="text-sm text-muted-foreground">
                         {latestResult.authorized ? 'Cierre permitido' : 'Cierre bloqueado'}
                       </span>
                     </div>
                     <p className="mt-2 text-sm text-muted-foreground">
-                      Código de motivo: {translateReasonCode(latestResult.reasonCode)}
+                      Motivo: {resultReasonLabel(latestResult)}
                     </p>
                     <p className="mt-3 text-xs text-muted-foreground">
                       Estado de autenticidad: {translateLabel(latestResult.strongestAuthStatus ?? 'pending')} · Puntaje{' '}
@@ -612,14 +657,14 @@ export function ManualVerificationView() {
                       <StatusBadge status={item.status} />
                     </TD>
                     <TD>
-                      <StatusBadge status={item.authorized ? 'authorized' : item.reasonCode} />
+                      <StatusBadge status={resultBadgeStatus(item)} />
                     </TD>
                     <TD>
                       {inferVerificationMethod(item) === 'binance'
                         ? 'Consulta directa Binance API'
                         : item.evidence?.subject ?? item.strongestEmail?.subject ?? 'Aún sin evidencia'}
                     </TD>
-                    <TD>{translateReasonCode(item.reasonCode)}</TD>
+                    <TD>{resultReasonLabel(item)}</TD>
                     <TD>{formatDateTime(item.createdAt)}</TD>
                   </TR>
                 ))}

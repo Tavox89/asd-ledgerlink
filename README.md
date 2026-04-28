@@ -88,7 +88,7 @@ curl -X POST http://localhost:4000/gmail/pubsub/pull
 
 8. Review stored emails in `/companies/<slug>/emails`
 9. Create expected transfers in `/companies/<slug>/transfers/new`
-10. Use `/companies/<slug>/verifications` to query Zelle stored inbox evidence with `reference`, `name`, or both, plus `amount + date` after the email arrives. The same screen lets the operator switch to `Binance`, which consults Binance API directly.
+10. Use `/companies/<slug>/verifications` to query Zelle stored inbox evidence with `reference`, `name`, or both, plus `amount + date` after the email arrives. The same screen lets the operator switch to `Binance`, which consults Binance API directly. Binance keys must allow the server egress IP; if Binance rejects the request by IP or location, the UI and WhatsApp reply expose that API error instead of using Gmail sender wording.
 11. Create a company integration token before connecting WordPress/OpenPOS or another external bridge
 12. Use `POST /companies/:companySlug/verifications/authorize` when an external system needs a binary close/no-close authorization with evidence. Identity can be driven by exact `referenciaEsperada`, exact `nombreClienteOpcional`, or both together.
 13. Create a tracked verification request from the same screen only when you need manual follow-up

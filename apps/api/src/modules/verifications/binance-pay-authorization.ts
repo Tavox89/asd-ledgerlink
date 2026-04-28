@@ -541,6 +541,10 @@ function reasonFromEvaluations(
   hasReference: boolean,
   hasName: boolean,
 ): VerificationReasonCode {
+  if (evaluations.length === 0) {
+    return 'date';
+  }
+
   const receiverCandidates = evaluations.filter((evaluation) => evaluation.isIncome && evaluation.receiverMatched !== false);
   if (receiverCandidates.length === 0) {
     return 'sender';

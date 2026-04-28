@@ -570,7 +570,56 @@ function methodLabel(method: Exclude<VerificationPaymentMethod, 'unknown'>) {
   return method === 'binance' ? 'Binance' : 'Zelle';
 }
 
-export function translateVerificationReason(reasonCode: VerificationReasonCode) {
+interface BlockedReplyOptions {
+  binanceApiErrorCode?: string | null;
+}
+
+function translateBinanceApiError(errorCode?: string | null) {
+  const normalized = (errorCode ?? '').toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.includes('restricted location') || normalized.includes('eligibility')) {
+    return 'Binance API rechazo la consulta por restriccion de ubicacion o IP. Valida la IP permitida y los permisos de la API key';
+  }
+
+  if (normalized.includes('binance_api_not_configured')) {
+    return 'Binance API no esta configurada en el servidor';
+  }
+
+  return 'Binance API devolvio un error al consultar la operacion';
+}
+
+export function translateVerificationReason(
+  reasonCode: VerificationReasonCode,
+  method: Exclude<VerificationPaymentMethod, 'unknown'> = 'zelle',
+  options: BlockedReplyOptions = {},
+) {
+  if (method === 'binance') {
+    const apiErrorReason = translateBinanceApiError(options.binanceApiErrorCode);
+    if (apiErrorReason) {
+      return apiErrorReason;
+    }
+
+    switch (reasonCode) {
+      case 'sender':
+        return 'el receptor configurado de Binance no coincide o Binance no lo confirmo';
+      case 'name':
+        return 'el nombre del pagador no coincide con la operacion oficial de Binance';
+      case 'reference':
+        return 'el ID de orden no coincide con la operacion oficial de Binance';
+      case 'amount':
+        return 'el monto no coincide con la operacion oficial de Binance';
+      case 'date':
+        return 'no se encontro la operacion en la fecha consultada. Envia la captura con fecha y hora visibles, o escribe la fecha del pago';
+      case 'identity_required':
+        return 'se requiere ID de orden o nombre del pagador para consultar Binance';
+      default:
+        return 'se encontro evidencia exacta en Binance';
+    }
+  }
+
   switch (reasonCode) {
     case 'sender':
       return 'el remitente del correo no coincide con una regla permitida';
@@ -602,8 +651,9 @@ export function buildBlockedReply(
   input: CollectedVerificationInput,
   reasonCode: VerificationReasonCode,
   strategyLabel: string,
+  options: BlockedReplyOptions = {},
 ) {
-  return `${methodLabel(method)}.\nNo, pago bloqueado.\nNombre: ${input.customerName ?? 'sin nombre'}\nReferencia: ${input.reference ?? 'sin referencia'}\nMonto: ${formatCurrency(input.amount ?? 0, input.currency)}\nFecha usada: ${strategyLabel}\nMotivo: ${translateVerificationReason(reasonCode)}.`;
+  return `${methodLabel(method)}.\nNo, pago bloqueado.\nNombre: ${input.customerName ?? 'sin nombre'}\nReferencia: ${input.reference ?? 'sin referencia'}\nMonto: ${formatCurrency(input.amount ?? 0, input.currency)}\nFecha usada: ${strategyLabel}\nMotivo: ${translateVerificationReason(reasonCode, method, options)}.`;
 }
 
 export function buildUnauthorizedPhoneReply() {

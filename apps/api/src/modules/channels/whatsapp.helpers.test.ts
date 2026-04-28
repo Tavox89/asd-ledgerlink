@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildBlockedReply,
   buildImageFallbackReply,
   buildVerificationStrategies,
   detectVerificationMethod,
@@ -161,6 +162,32 @@ describe('whatsapp helpers', () => {
 
   it('asks for reference or name when image extraction is insufficient', () => {
     expect(buildImageFallbackReply()).toContain('referencia o nombre');
+  });
+
+  it('uses Binance-specific blocked reasons instead of Gmail sender wording', () => {
+    const reply = buildBlockedReply(
+      'binance',
+      {
+        reference: '428221485342556160',
+        customerName: null,
+        alias: 'Gedcorp',
+        amount: 5,
+        currency: 'USD',
+        currencySource: 'image',
+        bank: 'Binance',
+        extractedDate: null,
+        extractedTime: null,
+      },
+      'sender',
+      'momento de verificacion',
+      {
+        binanceApiErrorCode:
+          "0:Service unavailable from a restricted location according to 'b. Eligibility'",
+      },
+    );
+
+    expect(reply).toContain('Binance API rechazo la consulta por restriccion de ubicacion o IP');
+    expect(reply).not.toContain('remitente del correo');
   });
 
   it('detects Binance on the shared WhatsApp channel using capture/text signals', () => {
