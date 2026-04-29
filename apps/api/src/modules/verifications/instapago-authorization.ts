@@ -192,7 +192,9 @@ function optionalProviderMatch(actual: string | null, expected: string | null): 
 }
 
 function normalizeDocument(value?: string | null) {
-  const normalized = (value ?? '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  // InstaPago's sandbox tester sends clientid as digits only even when the UI
+  // accepts Venezuelan prefixes such as V/E/J/G/P.
+  const normalized = (value ?? '').replace(/\D/g, '');
   return normalized || null;
 }
 
