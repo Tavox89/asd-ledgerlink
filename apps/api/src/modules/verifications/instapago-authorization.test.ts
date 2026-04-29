@@ -113,8 +113,7 @@ describe('InstaPago authorization', () => {
       expect.objectContaining({ method: 'GET' }),
     );
     const [requestUrl] = fetchMock.mock.calls[0] ?? [];
-    expect(String(requestUrl)).toContain('clientid=0000000');
-    expect(String(requestUrl)).not.toContain('clientid=V0000000');
+    expect(String(requestUrl)).toContain('clientid=V0000000');
     expect(prismaMock.paymentProviderVerificationAttempt.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -180,8 +179,7 @@ describe('InstaPago authorization', () => {
       }),
     );
     const [, transferRequest] = fetchMock.mock.calls[0] ?? [];
-    expect(String((transferRequest as RequestInit).body)).toContain('clientId=12345678');
-    expect(String((transferRequest as RequestInit).body)).not.toContain('clientId=V12345678');
+    expect(String((transferRequest as RequestInit).body)).toContain('clientId=V12345678');
   });
 
   it('blocks duplicate provider responses', async () => {

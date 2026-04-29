@@ -192,10 +192,22 @@ function optionalProviderMatch(actual: string | null, expected: string | null): 
 }
 
 function normalizeDocument(value?: string | null) {
-  // InstaPago's sandbox tester sends clientid as digits only even when the UI
-  // accepts Venezuelan prefixes such as V/E/J/G/P.
-  const normalized = (value ?? '').replace(/\D/g, '');
-  return normalized || null;
+  const normalized = (value ?? '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!normalized) {
+    return null;
+  }
+
+  if (/^[VEJPG]\d{5,12}$/.test(normalized)) {
+    return normalized;
+  }
+
+  // When an integration sends only digits, default to natural-person cedula.
+  // Business RIFs must include their prefix (J/G/P/E) in the incoming payload.
+  if (/^\d{5,12}$/.test(normalized)) {
+    return `V${normalized}`;
+  }
+
+  return normalized;
 }
 
 function normalizePhoneForProvider(value?: string | null) {
