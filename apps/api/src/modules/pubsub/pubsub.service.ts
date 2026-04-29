@@ -43,6 +43,28 @@ function decodePubSubMessage(data?: Uint8Array | null): GmailPushPayload | null 
   return JSON.parse(raw) as GmailPushPayload;
 }
 
+function isGmailMessageNotFoundError(error: unknown) {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'status' in error &&
+    Number((error as { status?: unknown }).status) === 404
+  ) {
+    return true;
+  }
+
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    Number((error as { code?: unknown }).code) === 404
+  ) {
+    return true;
+  }
+
+  return error instanceof Error && /not found/i.test(error.message);
+}
+
 async function buildWatchContext(emailAddress: string): Promise<CachedWatchContext | null> {
   try {
     const { account, gmail } = await getAuthorizedGmailClientForEmail(emailAddress);
@@ -203,9 +225,24 @@ export async function pullGmailPubSubMessages(companySlug?: string, maxMessages 
       throw error;
     }
 
+    let processedForMessage = 0;
+
     for (const gmailMessageId of newMessageIds) {
-      const ingested = await fetchAndIngestMessageByIdForEmailAccount(emailAddress, gmailMessageId);
-      ingestedItems.push(ingested);
+      try {
+        const ingested = await fetchAndIngestMessageByIdForEmailAccount(emailAddress, gmailMessageId);
+        ingestedItems.push(ingested);
+        processedForMessage += 1;
+      } catch (error) {
+        if (isGmailMessageNotFoundError(error)) {
+          logger.warn(
+            { err: error, emailAddress, gmailMessageId },
+            'Skipping Gmail Pub/Sub history item because the message is no longer available.',
+          );
+          continue;
+        }
+
+        throw error;
+      }
     }
 
     await prisma.gmailWatch.update({
@@ -222,13 +259,13 @@ export async function pullGmailPubSubMessages(companySlug?: string, maxMessages 
     watchActivity.set(context.watchId, {
       companyId: context.companyId,
       pulled: (watchActivity.get(context.watchId)?.pulled ?? 0) + 1,
-      processed: (watchActivity.get(context.watchId)?.processed ?? 0) + newMessageIds.size,
+      processed: (watchActivity.get(context.watchId)?.processed ?? 0) + processedForMessage,
     });
 
     const targetedAccountResult = targetedAccountResults.get(context.accountId);
     if (targetedAccountResult) {
       targetedAccountResult.pulled += 1;
-      targetedAccountResult.processed += newMessageIds.size;
+      targetedAccountResult.processed += processedForMessage;
     }
 
     if (ackId) {
