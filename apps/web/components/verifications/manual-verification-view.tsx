@@ -35,6 +35,10 @@ function displayReference(value?: string | null) {
   return value?.trim() ? value : 'Sin referencia';
 }
 
+function dateOnlyFromValue(value: string) {
+  return value.trim().slice(0, 10);
+}
+
 type VerificationFormMode = 'zelle' | 'binance' | 'pago_movil' | 'transferencia_directa';
 
 function methodLabel(method: VerificationFormMode | string | null | undefined) {
@@ -228,12 +232,13 @@ export function ManualVerificationView() {
       : `/companies/${companySlug}/verifications/manual`;
   const buildRequestPayload = () => {
     if (isProviderMode) {
+      const fechaPago = dateOnlyFromValue(form.fechaOperacion);
+
       return {
         referenciaEsperada: form.referenciaEsperada,
         montoEsperado: form.montoEsperado,
         moneda: 'VES',
-        fechaPago: new Date(form.fechaOperacion).toISOString().slice(0, 10),
-        fechaOperacion: new Date(form.fechaOperacion).toISOString(),
+        fechaPago,
         bancoOrigen: toNullableString(form.bancoOrigen),
         bancoDestino: toNullableString(form.bancoDestino),
         cedulaCliente: toNullableString(form.cedulaCliente),
@@ -286,6 +291,8 @@ export function ManualVerificationView() {
       const successMessage =
         mode === 'binance'
           ? 'Binance API consultada.'
+          : isProviderMode
+            ? 'InstaPago fue consultado.'
           : result.autoRefresh?.status === 'retried'
             ? 'La evidencia del buzón se revisó después del reintento automático de Pub/Sub.'
             : 'La evidencia del buzón fue revisada.';
@@ -444,8 +451,8 @@ export function ManualVerificationView() {
               />
             )}
             <Input
-              type="datetime-local"
-              value={form.fechaOperacion}
+              type={isProviderMode ? 'date' : 'datetime-local'}
+              value={isProviderMode ? dateOnlyFromValue(form.fechaOperacion) : form.fechaOperacion}
               onChange={(event) => setForm((current) => ({ ...current, fechaOperacion: event.target.value }))}
             />
             {isProviderMode ? (
@@ -579,7 +586,10 @@ export function ManualVerificationView() {
                       ? 'Solicitud registrada'
                       : inferVerificationMethod(latestResult) === 'binance'
                         ? 'Consulta oficial Binance'
-                        : 'Consulta en vivo del buzón'}
+                        : inferVerificationMethod(latestResult) === 'pago_movil' ||
+                            inferVerificationMethod(latestResult) === 'transferencia_directa'
+                          ? 'Consulta oficial InstaPago'
+                          : 'Consulta en vivo del buzón'}
                   </p>
                   <p className="mt-3 text-lg font-semibold">
                     {displayReference(latestResult.transfer.referenceExpected)} ·{' '}
@@ -588,10 +598,19 @@ export function ManualVerificationView() {
                   <p className="mt-1 text-sm text-muted-foreground">
                     Nombre esperado: {latestResult.transfer.customerName ?? 'Sin nombre'}
                   </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Ventana: {formatDateTime(latestResult.transfer.expectedWindowFrom)} hasta{' '}
-                    {formatDateTime(latestResult.transfer.expectedWindowTo)}
-                  </p>
+                  {inferVerificationMethod(latestResult) === 'pago_movil' ||
+                  inferVerificationMethod(latestResult) === 'transferencia_directa' ? (
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Fecha consultada:{' '}
+                      {latestResult.paymentProviderApi?.evidence?.paymentDate ??
+                        latestResult.transfer.expectedWindowFrom.slice(0, 10)}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Ventana: {formatDateTime(latestResult.transfer.expectedWindowFrom)} hasta{' '}
+                      {formatDateTime(latestResult.transfer.expectedWindowTo)}
+                    </p>
+                  )}
                   <p className="mt-2 text-sm text-muted-foreground">
                     {inferVerificationMethod(latestResult) === 'binance' ? (
                       <>
