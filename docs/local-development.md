@@ -42,7 +42,7 @@ PAYMENT_CONFIG_ENCRYPTION_KEY=replace-with-a-long-stable-random-secret
 INSTAPAGO_TIMEOUT_MS=15000
 ```
 
-After the env key is present, configure each company's InstaPago credentials from `/companies`. LedgerLink encrypts `keyId` and `publicKeyId`, stores only encrypted values, and never returns the full credentials. Pago Movil and Transferencia Directa authorize against the provider API directly; the protected `/lookup` routes are local/non-destructive and only report existing attempts.
+After the env key is present, configure each company's InstaPago credentials from `/companies`. LedgerLink encrypts `keyId` and `publicKeyId`, stores only encrypted values, and never returns the full credentials. Pago Movil authorization calls `Payments/p2p/ValidatePayment`, Transferencia Directa calls `Transfers/p2c`, and both send dates as `YYYY-MM-DD`. The protected `/lookup` routes are local/non-destructive and only report existing attempts.
 
 ## Database
 

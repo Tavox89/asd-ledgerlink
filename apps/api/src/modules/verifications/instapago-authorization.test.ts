@@ -109,7 +109,7 @@ describe('InstaPago authorization', () => {
     expect(result.paymentProviderApi.providerCode).toBe('201');
     expect(result.paymentProviderApi.matchedReference).toBe('028251997974');
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('/v2/Payments/p2p/GetPayment?'),
+      expect.stringContaining('/v2/Payments/p2p/ValidatePayment?'),
       expect.objectContaining({ method: 'GET' }),
     );
     expect(prismaMock.paymentProviderVerificationAttempt.create).toHaveBeenCalledWith(
@@ -119,8 +119,8 @@ describe('InstaPago authorization', () => {
           reasonCode: 'authorized',
           providerRequest: expect.objectContaining({
             params: expect.objectContaining({
-              keyId: '[redacted]',
-              publickeyid: '[redacted]',
+              KeyId: '[redacted]',
+              PublicKeyId: '[redacted]',
               clientid: '[redacted-client-id]',
               phonenumberclient: '[redacted-phone]',
             }),

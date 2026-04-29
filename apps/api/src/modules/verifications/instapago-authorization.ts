@@ -197,28 +197,28 @@ function normalizeDocument(value?: string | null) {
 }
 
 function normalizePhoneForProvider(value?: string | null) {
-  const digits = (value ?? '').replace(/[^\d+]/g, '');
+  const digits = (value ?? '').replace(/\D/g, '');
   if (!digits) {
     return null;
   }
 
-  if (digits.startsWith('+')) {
-    return `00${digits.slice(1)}`;
-  }
-
-  if (digits.startsWith('00')) {
+  if (/^0058[24]\d{9}$/.test(digits)) {
     return digits;
   }
 
-  if (digits.startsWith('58')) {
+  if (/^58[24]\d{9}$/.test(digits)) {
     return `00${digits}`;
   }
 
-  if (digits.startsWith('0')) {
+  if (/^0[24]\d{9}$/.test(digits)) {
     return `0058${digits.slice(1)}`;
   }
 
-  return digits;
+  if (/^[24]\d{9}$/.test(digits)) {
+    return `0058${digits}`;
+  }
+
+  return null;
 }
 
 function resolvePaymentDate(input: PaymentProviderVerificationInput) {
@@ -257,14 +257,22 @@ function normalizeProviderRequest(
 }
 
 function redactProviderRequest(value: Record<string, string | null>) {
-  return {
-    ...value,
-    keyId: value.keyId ? '[redacted]' : null,
-    publickeyid: value.publickeyid ? '[redacted]' : null,
-    clientid: value.clientid ? '[redacted-client-id]' : null,
-    clientId: value.clientId ? '[redacted-client-id]' : null,
-    phonenumberclient: value.phonenumberclient ? '[redacted-phone]' : null,
-  };
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entryValue]) => {
+      const normalizedKey = key.toLowerCase();
+      if (normalizedKey === 'keyid' || normalizedKey === 'publickeyid') {
+        return [key, entryValue ? '[redacted]' : null];
+      }
+      if (normalizedKey === 'clientid') {
+        return [key, entryValue ? '[redacted-client-id]' : null];
+      }
+      if (normalizedKey === 'phonenumberclient') {
+        return [key, entryValue ? '[redacted-phone]' : null];
+      }
+
+      return [key, entryValue];
+    }),
+  );
 }
 
 function redactProviderResponse(payload: UnknownRecord | null) {
@@ -347,8 +355,8 @@ function buildPagoMovilProviderParams(
   request: NormalizedProviderRequest,
 ) {
   return {
-    keyId: config.keyId,
-    publickeyid: config.publicKeyId,
+    KeyId: config.keyId,
+    PublicKeyId: config.publicKeyId,
     phonenumberclient: request.phoneNumber ?? '',
     clientid: request.clientId ?? '',
     bank: request.originBank ?? '',
@@ -365,7 +373,7 @@ function buildTransferProviderParams(
 ) {
   return {
     keyId: config.keyId,
-    publickeyid: config.publicKeyId,
+    PublicKeyId: config.publicKeyId,
     date: request.paymentDate,
     reference: request.reference,
     clientId: request.clientId ?? '',
@@ -382,7 +390,7 @@ async function callInstapagoProvider(
 ) {
   if (method === 'pago_movil') {
     const params = buildPagoMovilProviderParams(config, request);
-    const url = new URL(buildProviderUrl(config, '/v2/Payments/p2p/GetPayment'));
+    const url = new URL(buildProviderUrl(config, '/v2/Payments/p2p/ValidatePayment'));
     Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
 
     const result = await fetchWithTimeout(url.toString(), {
@@ -443,11 +451,15 @@ function responseSuccess(payload: UnknownRecord | null) {
   }
 
   const rawSuccess = payload.success;
-  if (rawSuccess === true) {
+  const rawMisspelledSuccess = payload.sucess;
+  if (rawSuccess === true || rawMisspelledSuccess === true) {
     return true;
   }
 
   if (typeof rawSuccess === 'string' && rawSuccess.toLowerCase() === 'true') {
+    return true;
+  }
+  if (typeof rawMisspelledSuccess === 'string' && rawMisspelledSuccess.toLowerCase() === 'true') {
     return true;
   }
 

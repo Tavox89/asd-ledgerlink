@@ -13,7 +13,12 @@ const venezuelanDocumentSchema = z
   .regex(/^[VEJPGvejpg]?\d{5,12}$/, 'Debe ser una cedula o RIF venezolano valido.');
 const phoneSchema = z.preprocess(
   (value) => (typeof value === 'string' ? value.trim().replace(/[\s().-]+/g, '') : value),
-  z.string().regex(/^\+?\d{10,16}$/, 'Debe ser un telefono valido.'),
+  z
+    .string()
+    .regex(
+      /^(?:4\d{9}|04\d{9}|58[24]\d{9}|\+58[24]\d{9}|0058[24]\d{9})$/,
+      'Debe ser un telefono venezolano valido. Usa 04121234567 o 00584121234567.',
+    ),
 );
 
 export const upsertInstapagoConfigSchema = z.object({
