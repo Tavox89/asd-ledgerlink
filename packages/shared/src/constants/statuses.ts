@@ -37,4 +37,6 @@ export const verificationReasonCodeValues = [
   'amount',
   'date',
   'identity_required',
+  'duplicate',
+  'provider_error',
 ] as const;

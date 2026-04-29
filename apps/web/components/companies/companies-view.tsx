@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Copy, EyeOff, KeyRound, ShieldCheck } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -13,6 +13,7 @@ import type {
   CompanyRecord,
   IntegrationApiTokenRecord,
   IssuedIntegrationApiTokenRecord,
+  PaymentProviderConfigRecord,
 } from '../../lib/types';
 import { AppShell } from '../layout/app-shell';
 import { StatusBadge } from '../layout/status-badge';
@@ -279,6 +280,138 @@ function CompanyIntegrationTokensPanel({ company }: { company: CompanyRecord }) 
             )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function CompanyInstapagoPanel({ company }: { company: CompanyRecord }) {
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState({
+    isActive: true,
+    apiBaseUrl: 'https://merchant.instapago.com/services/api',
+    keyId: '',
+    publicKeyId: '',
+    defaultReceiptBank: '',
+    defaultOriginBank: '',
+  });
+
+  const configQuery = useQuery({
+    queryKey: ['payment-provider-instapago', company.slug],
+    queryFn: () =>
+      api.get<PaymentProviderConfigRecord | null>(`/companies/${company.slug}/payment-providers/instapago`),
+  });
+
+  useEffect(() => {
+    const config = configQuery.data;
+    if (!config) {
+      return;
+    }
+
+    setForm((current) => ({
+      ...current,
+      isActive: config.isActive,
+      apiBaseUrl: config.apiBaseUrl,
+      defaultReceiptBank: config.defaultReceiptBank,
+      defaultOriginBank: config.defaultOriginBank ?? '',
+      keyId: '',
+      publicKeyId: '',
+    }));
+  }, [configQuery.data]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!form.defaultReceiptBank.trim()) {
+        throw new Error('El banco destino por defecto es obligatorio.');
+      }
+
+      const exists = Boolean(configQuery.data);
+      if (!exists && (!form.keyId.trim() || !form.publicKeyId.trim())) {
+        throw new Error('Debes guardar KeyId y PublicKeyId la primera vez.');
+      }
+
+      return api.put<PaymentProviderConfigRecord>(`/companies/${company.slug}/payment-providers/instapago`, {
+        isActive: form.isActive,
+        apiBaseUrl: form.apiBaseUrl,
+        keyId: form.keyId.trim() || null,
+        publicKeyId: form.publicKeyId.trim() || null,
+        defaultReceiptBank: form.defaultReceiptBank.trim(),
+        defaultOriginBank: form.defaultOriginBank.trim() || null,
+      });
+    },
+    onSuccess: async () => {
+      setForm((current) => ({
+        ...current,
+        keyId: '',
+        publicKeyId: '',
+      }));
+      toast.success('Configuración InstaPago guardada.');
+      await queryClient.invalidateQueries({ queryKey: ['payment-provider-instapago', company.slug] });
+      await queryClient.invalidateQueries({ queryKey: ['companies'] });
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const config = configQuery.data;
+
+  return (
+    <div className="md:col-span-2 rounded-2xl border border-border/60 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-semibold">Proveedor InstaPago / Multibanco</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Configura las credenciales por empresa para validar Pago Móvil y Transferencia directa contra el proveedor.
+          </p>
+        </div>
+        <StatusBadge
+          status={config?.isActive && config.hasKeyId && config.hasPublicKeyId ? 'active' : 'inactive'}
+        />
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <Input
+          placeholder="Base URL API"
+          value={form.apiBaseUrl}
+          onChange={(event) => setForm((current) => ({ ...current, apiBaseUrl: event.target.value }))}
+        />
+        <Input
+          placeholder="Banco destino por defecto (4 dígitos)"
+          value={form.defaultReceiptBank}
+          onChange={(event) => setForm((current) => ({ ...current, defaultReceiptBank: event.target.value }))}
+        />
+        <Input
+          placeholder="Banco origen por defecto (opcional)"
+          value={form.defaultOriginBank}
+          onChange={(event) => setForm((current) => ({ ...current, defaultOriginBank: event.target.value }))}
+        />
+        <label className="flex items-center gap-2 rounded-xl border border-border/60 px-3 py-2 text-sm">
+          <input
+            type="checkbox"
+            checked={form.isActive}
+            onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))}
+          />
+          Proveedor activo
+        </label>
+        <Input
+          placeholder={config?.hasKeyId ? 'KeyId guardado; escribir solo para reemplazar' : 'KeyId'}
+          value={form.keyId}
+          onChange={(event) => setForm((current) => ({ ...current, keyId: event.target.value }))}
+        />
+        <Input
+          placeholder={config?.hasPublicKeyId ? 'PublicKeyId guardado; escribir solo para reemplazar' : 'PublicKeyId'}
+          value={form.publicKeyId}
+          onChange={(event) => setForm((current) => ({ ...current, publicKeyId: event.target.value }))}
+        />
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
+        <span>
+          Credenciales: {config?.hasKeyId && config.hasPublicKeyId ? 'guardadas' : 'pendientes'} · Última actualización:{' '}
+          {formatDateTime(config?.updatedAt ?? null)}
+        </span>
+        <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || configQuery.isLoading}>
+          Guardar InstaPago
+        </Button>
       </div>
     </div>
   );
@@ -567,6 +700,7 @@ export function CompaniesView() {
                         </p>
                       </div>
                     </div>
+                    <CompanyInstapagoPanel company={company} />
                     <CompanyIntegrationTokensPanel company={company} />
                   </CardContent>
                 </Card>

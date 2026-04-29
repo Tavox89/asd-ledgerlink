@@ -7,6 +7,8 @@ export const {
   InboundEmailStatus,
   ManualReviewStatus,
   MatchStatus,
+  PaymentProvider,
+  PaymentProviderMethod,
   PrismaClient,
   SenderMatchType,
   TransferEvidenceStatus,

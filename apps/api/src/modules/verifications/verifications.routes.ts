@@ -4,6 +4,7 @@ import {
   createManualVerificationSchema,
   idParamSchema,
   patchActionNoteSchema,
+  paymentProviderVerificationSchema,
 } from '@ledgerlink/shared';
 
 import { asyncHandler, validateRequest } from '../../lib/http';
@@ -11,14 +12,22 @@ import { requireCompanyIntegrationScope } from '../../middleware/integration-aut
 import { DEFAULT_COMPANY_SLUG } from '../companies/companies.service';
 import {
   authorizeBinanceVerification,
+  authorizePagoMovilVerification,
+  authorizeTransferenciaDirectaVerification,
   authorizeVerification,
   confirmVerification,
+  createManualPagoMovilVerification,
+  createManualTransferenciaDirectaVerification,
   createManualBinanceVerification,
   createManualVerification,
   getVerificationById,
   listVerifications,
   lookupBinanceVerification,
+  lookupPagoMovilVerification,
+  lookupTransferenciaDirectaVerification,
   lookupVerification,
+  operatorLookupPagoMovilVerification,
+  operatorLookupTransferenciaDirectaVerification,
   rejectVerification,
 } from './verifications.service';
 
@@ -65,6 +74,40 @@ verificationsRouter.post(
 );
 
 verificationsRouter.post(
+  '/companies/:companySlug/verifications/pago-movil/lookup',
+  validateRequest({ params: companySlugParamSchema, body: paymentProviderVerificationSchema }),
+  requireCompanyIntegrationScope('verifications:lookup'),
+  asyncHandler(async (req, res) => {
+    res.json(await lookupPagoMovilVerification(req.params.companySlug, req.body));
+  }),
+);
+
+verificationsRouter.post(
+  '/companies/:companySlug/verifications/pago-movil/operator-lookup',
+  validateRequest({ params: companySlugParamSchema, body: paymentProviderVerificationSchema }),
+  asyncHandler(async (req, res) => {
+    res.json(await operatorLookupPagoMovilVerification(req.params.companySlug, req.body));
+  }),
+);
+
+verificationsRouter.post(
+  '/companies/:companySlug/verifications/transferencia-directa/lookup',
+  validateRequest({ params: companySlugParamSchema, body: paymentProviderVerificationSchema }),
+  requireCompanyIntegrationScope('verifications:lookup'),
+  asyncHandler(async (req, res) => {
+    res.json(await lookupTransferenciaDirectaVerification(req.params.companySlug, req.body));
+  }),
+);
+
+verificationsRouter.post(
+  '/companies/:companySlug/verifications/transferencia-directa/operator-lookup',
+  validateRequest({ params: companySlugParamSchema, body: paymentProviderVerificationSchema }),
+  asyncHandler(async (req, res) => {
+    res.json(await operatorLookupTransferenciaDirectaVerification(req.params.companySlug, req.body));
+  }),
+);
+
+verificationsRouter.post(
   '/verifications/lookup',
   validateRequest({ body: createManualVerificationSchema }),
   asyncHandler(async (req, res) => {
@@ -107,6 +150,24 @@ verificationsRouter.post(
 );
 
 verificationsRouter.post(
+  '/companies/:companySlug/verifications/pago-movil/authorize',
+  validateRequest({ params: companySlugParamSchema, body: paymentProviderVerificationSchema }),
+  requireCompanyIntegrationScope('verifications:authorize'),
+  asyncHandler(async (req, res) => {
+    res.json(await authorizePagoMovilVerification(req.params.companySlug, req.body));
+  }),
+);
+
+verificationsRouter.post(
+  '/companies/:companySlug/verifications/transferencia-directa/authorize',
+  validateRequest({ params: companySlugParamSchema, body: paymentProviderVerificationSchema }),
+  requireCompanyIntegrationScope('verifications:authorize'),
+  asyncHandler(async (req, res) => {
+    res.json(await authorizeTransferenciaDirectaVerification(req.params.companySlug, req.body));
+  }),
+);
+
+verificationsRouter.post(
   '/verifications/authorize',
   validateRequest({ body: createManualVerificationSchema }),
   asyncHandler(async (req, res) => {
@@ -136,6 +197,22 @@ verificationsRouter.post(
   validateRequest({ params: companySlugParamSchema, body: createManualVerificationSchema }),
   asyncHandler(async (req, res) => {
     res.status(201).json(await createManualBinanceVerification(req.params.companySlug, req.body));
+  }),
+);
+
+verificationsRouter.post(
+  '/companies/:companySlug/verifications/pago-movil/manual',
+  validateRequest({ params: companySlugParamSchema, body: paymentProviderVerificationSchema }),
+  asyncHandler(async (req, res) => {
+    res.status(201).json(await createManualPagoMovilVerification(req.params.companySlug, req.body));
+  }),
+);
+
+verificationsRouter.post(
+  '/companies/:companySlug/verifications/transferencia-directa/manual',
+  validateRequest({ params: companySlugParamSchema, body: paymentProviderVerificationSchema }),
+  asyncHandler(async (req, res) => {
+    res.status(201).json(await createManualTransferenciaDirectaVerification(req.params.companySlug, req.body));
   }),
 );
 

@@ -331,4 +331,44 @@ describe('whatsapp helpers', () => {
       }),
     ).toBe('binance');
   });
+
+  it('extracts Pago Movil fields and requires provider-specific missing data', () => {
+    const textExtraction = extractVerificationFromText(
+      'Pago movil referencia 028251997974 monto 59,24 VES cedula V12345678 telefono 04121234567 banco origen 0102 banco destino 0134 fecha 17 abril 2026',
+    );
+    const merged = mergeCollectedVerificationInput(null, textExtraction, null);
+
+    expect(textExtraction.reference).toBe('028251997974');
+    expect(textExtraction.amount).toBe(59.24);
+    expect(textExtraction.currency).toBe('VES');
+    expect(textExtraction.clientId).toBe('V12345678');
+    expect(textExtraction.phoneNumber).toBe('04121234567');
+    expect(textExtraction.originBank).toBe('0102');
+    expect(textExtraction.destinationBank).toBe('0134');
+    expect(
+      detectVerificationMethod({
+        textExtraction,
+        imageExtraction: null,
+        mergedInput: merged,
+      }),
+    ).toBe('pago_movil');
+    expect(getMissingVerificationFields(merged, 'pago_movil')).toEqual([]);
+  });
+
+  it('detects direct transfer and asks for phone only when the method is Pago Movil', () => {
+    const textExtraction = extractVerificationFromText(
+      'Transferencia directa ref TRF123456 monto 25 VES cedula V12345678 banco origen 0102 banco destino 0134 fecha 17 abril 2026',
+    );
+    const merged = mergeCollectedVerificationInput(null, textExtraction, null);
+
+    expect(
+      detectVerificationMethod({
+        textExtraction,
+        imageExtraction: null,
+        mergedInput: merged,
+      }),
+    ).toBe('transferencia_directa');
+    expect(getMissingVerificationFields(merged, 'transferencia_directa')).toEqual([]);
+    expect(getMissingVerificationFields(merged, 'pago_movil')).toEqual(['telefono']);
+  });
 });

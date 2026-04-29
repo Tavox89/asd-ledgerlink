@@ -35,10 +35,19 @@ function displayReference(value?: string | null) {
   return value?.trim() ? value : 'Sin referencia';
 }
 
-type VerificationFormMode = 'zelle' | 'binance';
+type VerificationFormMode = 'zelle' | 'binance' | 'pago_movil' | 'transferencia_directa';
 
 function methodLabel(method: VerificationFormMode | string | null | undefined) {
-  return method === 'binance' ? 'Binance' : 'Zelle';
+  switch (method) {
+    case 'binance':
+      return 'Binance';
+    case 'pago_movil':
+      return 'Pago Móvil';
+    case 'transferencia_directa':
+      return 'Transferencia directa';
+    default:
+      return 'Zelle';
+  }
 }
 
 function binanceMatchModeLabel(mode: string | null | undefined) {
@@ -66,9 +75,20 @@ function binanceDateStrategyLabel(strategy: string | null | undefined) {
 }
 
 function inferVerificationMethod(result: VerificationRecord | null): VerificationFormMode {
-  return result?.verificationMethod === 'binance' || result?.transfer.expectedBank === 'Binance'
-    ? 'binance'
-    : 'zelle';
+  if (result?.verificationMethod === 'binance' || result?.transfer.expectedBank === 'Binance') {
+    return 'binance';
+  }
+  if (result?.verificationMethod === 'pago_movil' || result?.paymentProviderApi?.method === 'pago_movil') {
+    return 'pago_movil';
+  }
+  if (
+    result?.verificationMethod === 'transferencia_directa' ||
+    result?.paymentProviderApi?.method === 'transferencia_directa'
+  ) {
+    return 'transferencia_directa';
+  }
+
+  return 'zelle';
 }
 
 function binanceReasonLabel(result: VerificationRecord) {
@@ -102,9 +122,23 @@ function binanceReasonLabel(result: VerificationRecord) {
 }
 
 function resultReasonLabel(result: VerificationRecord) {
-  return inferVerificationMethod(result) === 'binance'
-    ? binanceReasonLabel(result)
-    : translateReasonCode(result.reasonCode);
+  const method = inferVerificationMethod(result);
+  if (method === 'binance') {
+    return binanceReasonLabel(result);
+  }
+  if (method === 'pago_movil' || method === 'transferencia_directa') {
+    if (result.paymentProviderApi?.errorCode) {
+      return 'error del proveedor InstaPago';
+    }
+    if (result.reasonCode === 'duplicate') {
+      return 'pago ya validado';
+    }
+    if (result.reasonCode === 'provider_error') {
+      return 'proveedor no disponible';
+    }
+  }
+
+  return translateReasonCode(result.reasonCode);
 }
 
 function resultBadgeStatus(result: VerificationRecord) {
@@ -113,6 +147,9 @@ function resultBadgeStatus(result: VerificationRecord) {
   }
 
   if (inferVerificationMethod(result) === 'binance' && result.binanceApi?.errorCode) {
+    return 'error';
+  }
+  if (result.paymentProviderApi?.errorCode) {
     return 'error';
   }
 
@@ -149,6 +186,10 @@ export function ManualVerificationView() {
     fechaOperacion: '',
     toleranciaMinutos: '180',
     bancoEsperado: '',
+    bancoOrigen: '',
+    bancoDestino: '',
+    cedulaCliente: '',
+    telefonoCliente: '',
     cuentaDestinoUltimos4: '',
     nombreClienteOpcional: '',
     notas: '',
@@ -157,16 +198,63 @@ export function ManualVerificationView() {
   const modeReferenceLabel = mode === 'binance' ? 'ID de orden' : 'Referencia';
   const modeNameLabel = mode === 'binance' ? 'Nombre del pagador' : 'Nombre de quien envía';
   const isBinanceMode = mode === 'binance';
-  const lookupActionLabel = isBinanceMode ? 'Consultar Binance API' : 'Buscar evidencia en el buzón';
-  const lookupLoadingLabel = isBinanceMode ? 'Consultando Binance...' : 'Revisando buzón...';
+  const isProviderMode = mode === 'pago_movil' || mode === 'transferencia_directa';
+  const isPagoMovilMode = mode === 'pago_movil';
+  const lookupActionLabel = isBinanceMode
+    ? 'Consultar Binance API'
+    : isProviderMode
+      ? 'Consultar InstaPago'
+      : 'Buscar evidencia en el buzón';
+  const lookupLoadingLabel = isBinanceMode
+    ? 'Consultando Binance...'
+    : isProviderMode
+      ? 'Consultando InstaPago...'
+      : 'Revisando buzón...';
   const operatorLookupPath =
     mode === 'binance'
       ? `/companies/${companySlug}/verifications/binance/operator-lookup`
+      : mode === 'pago_movil'
+        ? `/companies/${companySlug}/verifications/pago-movil/operator-lookup`
+        : mode === 'transferencia_directa'
+          ? `/companies/${companySlug}/verifications/transferencia-directa/operator-lookup`
       : `/companies/${companySlug}/verifications/operator-lookup`;
   const createManualPath =
     mode === 'binance'
       ? `/companies/${companySlug}/verifications/binance/manual`
+      : mode === 'pago_movil'
+        ? `/companies/${companySlug}/verifications/pago-movil/manual`
+        : mode === 'transferencia_directa'
+          ? `/companies/${companySlug}/verifications/transferencia-directa/manual`
       : `/companies/${companySlug}/verifications/manual`;
+  const buildRequestPayload = () => {
+    if (isProviderMode) {
+      return {
+        referenciaEsperada: form.referenciaEsperada,
+        montoEsperado: form.montoEsperado,
+        moneda: 'VES',
+        fechaPago: new Date(form.fechaOperacion).toISOString().slice(0, 10),
+        fechaOperacion: new Date(form.fechaOperacion).toISOString(),
+        bancoOrigen: toNullableString(form.bancoOrigen),
+        bancoDestino: toNullableString(form.bancoDestino),
+        cedulaCliente: toNullableString(form.cedulaCliente),
+        telefonoCliente: isPagoMovilMode ? toNullableString(form.telefonoCliente) : null,
+        nombreClienteOpcional: toNullableString(form.nombreClienteOpcional),
+        notas: toNullableString(form.notas),
+      };
+    }
+
+    return {
+      referenciaEsperada: form.referenciaEsperada,
+      montoEsperado: form.montoEsperado,
+      moneda: mode === 'binance' ? 'USD' : form.moneda,
+      fechaOperacion: new Date(form.fechaOperacion).toISOString(),
+      toleranciaMinutos: Number(form.toleranciaMinutos),
+      bancoEsperado: mode === 'binance' ? null : toNullableString(form.bancoEsperado),
+      cuentaDestinoUltimos4: toNullableString(form.cuentaDestinoUltimos4),
+      nombreClienteOpcional: toNullableString(form.nombreClienteOpcional),
+      notas: toNullableString(form.notas),
+    };
+  };
 
   const query = useQuery({
     queryKey: ['verifications', companySlug],
@@ -178,21 +266,20 @@ export function ManualVerificationView() {
       if (!form.fechaOperacion) {
         throw new Error('La fecha de operación es obligatoria.');
       }
-      if (!hasIdentityInput(form)) {
+      if (isProviderMode && !toNullableString(form.referenciaEsperada)) {
+        throw new Error('La referencia es obligatoria para Pago Móvil y Transferencia.');
+      }
+      if (!isProviderMode && !hasIdentityInput(form)) {
         throw new Error('Debes informar referencia, nombre o ambos.');
       }
+      if (isProviderMode && (!form.bancoOrigen || !form.bancoDestino || !form.cedulaCliente)) {
+        throw new Error('Banco origen, banco destino y cédula/RIF son obligatorios.');
+      }
+      if (isPagoMovilMode && !form.telefonoCliente) {
+        throw new Error('El teléfono del cliente es obligatorio para Pago Móvil.');
+      }
 
-      return api.post<VerificationRecord>(operatorLookupPath, {
-        referenciaEsperada: form.referenciaEsperada,
-        montoEsperado: form.montoEsperado,
-        moneda: mode === 'binance' ? 'USD' : form.moneda,
-        fechaOperacion: new Date(form.fechaOperacion).toISOString(),
-        toleranciaMinutos: Number(form.toleranciaMinutos),
-        bancoEsperado: mode === 'binance' ? null : toNullableString(form.bancoEsperado),
-        cuentaDestinoUltimos4: toNullableString(form.cuentaDestinoUltimos4),
-        nombreClienteOpcional: toNullableString(form.nombreClienteOpcional),
-        notas: toNullableString(form.notas),
-      });
+      return api.post<VerificationRecord>(operatorLookupPath, buildRequestPayload());
     },
     onSuccess: (result) => {
       setLatestResult(result);
@@ -212,21 +299,14 @@ export function ManualVerificationView() {
       if (!form.fechaOperacion) {
         throw new Error('La fecha de operación es obligatoria.');
       }
-      if (!hasIdentityInput(form)) {
+      if (isProviderMode && !toNullableString(form.referenciaEsperada)) {
+        throw new Error('La referencia es obligatoria para Pago Móvil y Transferencia.');
+      }
+      if (!isProviderMode && !hasIdentityInput(form)) {
         throw new Error('Debes informar referencia, nombre o ambos.');
       }
 
-      return api.post<VerificationRecord>(createManualPath, {
-        referenciaEsperada: form.referenciaEsperada,
-        montoEsperado: form.montoEsperado,
-        moneda: mode === 'binance' ? 'USD' : form.moneda,
-        fechaOperacion: new Date(form.fechaOperacion).toISOString(),
-        toleranciaMinutos: Number(form.toleranciaMinutos),
-        bancoEsperado: mode === 'binance' ? null : toNullableString(form.bancoEsperado),
-        cuentaDestinoUltimos4: toNullableString(form.cuentaDestinoUltimos4),
-        nombreClienteOpcional: toNullableString(form.nombreClienteOpcional),
-        notas: toNullableString(form.notas),
-      });
+      return api.post<VerificationRecord>(createManualPath, buildRequestPayload());
     },
     onSuccess: async (result) => {
       setLatestResult(result);
@@ -260,7 +340,9 @@ export function ManualVerificationView() {
       description={
         isBinanceMode
           ? 'Consulta Binance API con ID de orden, nombre del pagador o ambos, además de monto y fecha. La captura de WhatsApp solo sirve para extraer esos datos.'
-          : 'Consulta el buzón con referencia, nombre o ambos, además de monto y fecha después de que llegue el correo. Ese mismo resultado exacto de autorización es el que usa el API para permitir o bloquear el cierre de la transacción.'
+          : isProviderMode
+            ? 'Consulta InstaPago/Multibanco con referencia, monto, fecha, bancos y datos del cliente. Este flujo no depende de Gmail.'
+            : 'Consulta el buzón con referencia, nombre o ambos, además de monto y fecha después de que llegue el correo. Ese mismo resultado exacto de autorización es el que usa el API para permitir o bloquear el cierre de la transacción.'
       }
     >
       <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
@@ -270,7 +352,9 @@ export function ManualVerificationView() {
             <CardDescription>
               {isBinanceMode
                 ? 'Usa el ID de orden o los datos extraídos de la captura para consultar directamente Binance. Este flujo no depende de Gmail.'
-                : 'Usa la misma señal que enviaría un operador o un API externo después de que el correo de pago ya llegó. Zelle se valida con evidencia del buzón.'}
+                : isProviderMode
+                  ? 'Usa los datos requeridos por InstaPago. La autorización oficial queda registrada como intento de proveedor.'
+                  : 'Usa la misma señal que enviaría un operador o un API externo después de que el correo de pago ya llegó. Zelle se valida con evidencia del buzón.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
@@ -300,9 +384,42 @@ export function ManualVerificationView() {
               >
                 Binance
               </Button>
+              <Button
+                type="button"
+                variant={mode === 'pago_movil' ? 'default' : 'outline'}
+                onClick={() => {
+                  setMode('pago_movil');
+                  setLatestResult(null);
+                  setForm((current) => ({
+                    ...current,
+                    moneda: 'VES',
+                    bancoEsperado: '',
+                    cuentaDestinoUltimos4: '',
+                  }));
+                }}
+              >
+                Pago Móvil
+              </Button>
+              <Button
+                type="button"
+                variant={mode === 'transferencia_directa' ? 'default' : 'outline'}
+                onClick={() => {
+                  setMode('transferencia_directa');
+                  setLatestResult(null);
+                  setForm((current) => ({
+                    ...current,
+                    moneda: 'VES',
+                    bancoEsperado: '',
+                    cuentaDestinoUltimos4: '',
+                    telefonoCliente: '',
+                  }));
+                }}
+              >
+                Transferencia
+              </Button>
             </div>
             <Input
-              placeholder={`${modeReferenceLabel} (opcional)`}
+              placeholder={`${modeReferenceLabel}${isProviderMode ? '' : ' (opcional)'}`}
               value={form.referenciaEsperada}
               onChange={(event) => setForm((current) => ({ ...current, referenciaEsperada: event.target.value }))}
             />
@@ -313,12 +430,12 @@ export function ManualVerificationView() {
             />
             <Input
               placeholder="Moneda"
-              value={mode === 'binance' ? 'USD' : form.moneda}
-              disabled={mode === 'binance'}
+              value={mode === 'binance' ? 'USD' : isProviderMode ? 'VES' : form.moneda}
+              disabled={mode === 'binance' || isProviderMode}
               onChange={(event) => setForm((current) => ({ ...current, moneda: event.target.value.toUpperCase() }))}
             />
-            {mode === 'binance' ? (
-              <Input value="Binance" disabled />
+            {mode === 'binance' || isProviderMode ? (
+              <Input value={isProviderMode ? 'InstaPago' : 'Binance'} disabled />
             ) : (
               <Input
                 placeholder="Banco esperado (opcional)"
@@ -331,21 +448,50 @@ export function ManualVerificationView() {
               value={form.fechaOperacion}
               onChange={(event) => setForm((current) => ({ ...current, fechaOperacion: event.target.value }))}
             />
-            <Input
-              placeholder="Minutos de tolerancia"
-              value={form.toleranciaMinutos}
-              onChange={(event) => setForm((current) => ({ ...current, toleranciaMinutos: event.target.value }))}
-            />
-            <Input
-              placeholder="Últimos 4 de destino"
-              value={form.cuentaDestinoUltimos4}
-              onChange={(event) => setForm((current) => ({ ...current, cuentaDestinoUltimos4: event.target.value }))}
-            />
-            <Input
-              placeholder={`${modeNameLabel} (opcional)`}
-              value={form.nombreClienteOpcional}
-              onChange={(event) => setForm((current) => ({ ...current, nombreClienteOpcional: event.target.value }))}
-            />
+            {isProviderMode ? (
+              <>
+                <Input
+                  placeholder="Banco origen (código 4 dígitos)"
+                  value={form.bancoOrigen}
+                  onChange={(event) => setForm((current) => ({ ...current, bancoOrigen: event.target.value }))}
+                />
+                <Input
+                  placeholder="Banco destino (código 4 dígitos)"
+                  value={form.bancoDestino}
+                  onChange={(event) => setForm((current) => ({ ...current, bancoDestino: event.target.value }))}
+                />
+                <Input
+                  placeholder="Cédula/RIF del cliente"
+                  value={form.cedulaCliente}
+                  onChange={(event) => setForm((current) => ({ ...current, cedulaCliente: event.target.value }))}
+                />
+                {isPagoMovilMode ? (
+                  <Input
+                    placeholder="Teléfono del cliente"
+                    value={form.telefonoCliente}
+                    onChange={(event) => setForm((current) => ({ ...current, telefonoCliente: event.target.value }))}
+                  />
+                ) : null}
+              </>
+            ) : (
+              <>
+                <Input
+                  placeholder="Minutos de tolerancia"
+                  value={form.toleranciaMinutos}
+                  onChange={(event) => setForm((current) => ({ ...current, toleranciaMinutos: event.target.value }))}
+                />
+                <Input
+                  placeholder="Últimos 4 de destino"
+                  value={form.cuentaDestinoUltimos4}
+                  onChange={(event) => setForm((current) => ({ ...current, cuentaDestinoUltimos4: event.target.value }))}
+                />
+                <Input
+                  placeholder={`${modeNameLabel} (opcional)`}
+                  value={form.nombreClienteOpcional}
+                  onChange={(event) => setForm((current) => ({ ...current, nombreClienteOpcional: event.target.value }))}
+                />
+              </>
+            )}
             <div className="md:col-span-2">
               <Textarea
                 placeholder="Notas del operador"
@@ -354,7 +500,7 @@ export function ManualVerificationView() {
               />
             </div>
             <div className="md:col-span-2 flex flex-wrap justify-end gap-3">
-              {!isBinanceMode ? (
+              {mode === 'zelle' ? (
                 <Button
                   variant="outline"
                   onClick={() => createMutation.mutate()}
@@ -390,12 +536,18 @@ export function ManualVerificationView() {
               <div className="flex min-h-[22rem] flex-col items-center justify-center rounded-2xl border border-dashed border-border/60 px-6 text-center">
                 <LoaderCircle className="size-8 animate-spin text-primary" />
                 <p className="mt-4 font-semibold">
-                  {isBinanceMode ? 'Consultando Binance API' : 'Revisando evidencia del buzón'}
+                  {isBinanceMode
+                    ? 'Consultando Binance API'
+                    : isProviderMode
+                      ? 'Consultando InstaPago'
+                      : 'Revisando evidencia del buzón'}
                 </p>
                 <p className="mt-2 max-w-sm text-sm text-muted-foreground">
                   {isBinanceMode
                     ? 'El backend está revisando el historial oficial de Binance Pay para el día indicado.'
-                    : 'El backend está revisando el buzón almacenado y lanzará una actualización automática de Pub/Sub si la evidencia aún no está disponible con la política actual de referencia o nombre, más monto y fecha.'}
+                    : isProviderMode
+                      ? 'El backend está llamando al proveedor oficial con los datos de pago recibidos.'
+                      : 'El backend está revisando el buzón almacenado y lanzará una actualización automática de Pub/Sub si la evidencia aún no está disponible con la política actual de referencia o nombre, más monto y fecha.'}
                 </p>
               </div>
             ) : !latestResult ? (
@@ -404,7 +556,9 @@ export function ManualVerificationView() {
                 description={
                   isBinanceMode
                     ? 'Consulta Binance con ID de orden, nombre o ambos, además de monto y fecha.'
-                    : 'Consulta el buzón con referencia, nombre o ambos, además de monto y fecha después de que llegue el correo. Crea una solicitud registrada solo cuando el caso deba mantenerse abierto.'
+                    : isProviderMode
+                      ? 'Consulta InstaPago con referencia, monto, fecha, bancos y datos del cliente.'
+                      : 'Consulta el buzón con referencia, nombre o ambos, además de monto y fecha después de que llegue el correo. Crea una solicitud registrada solo cuando el caso deba mantenerse abierto.'
                 }
               />
             ) : (
@@ -448,6 +602,12 @@ export function ManualVerificationView() {
                             ? 'no coincide'
                             : 'no confirmado'}
                       </>
+                    ) : inferVerificationMethod(latestResult) === 'pago_movil' ||
+                      inferVerificationMethod(latestResult) === 'transferencia_directa' ? (
+                      <>
+                        Consulta proveedor: {latestResult.paymentProviderApi?.checked ? 'ejecutada' : 'local'} · Código:{' '}
+                        {latestResult.paymentProviderApi?.providerCode ?? 'N/D'}
+                      </>
                     ) : (
                       <>
                         Candidatos exactos: {latestResult.candidateCount} · Política del remitente:{' '}
@@ -468,6 +628,15 @@ export function ManualVerificationView() {
                         : latestResult.binanceApi.errorCode
                           ? ` · Error: ${latestResult.binanceApi.errorCode}`
                           : ''}
+                    </div>
+                  ) : null}
+                  {latestResult.paymentProviderApi ? (
+                    <div className="mt-3 rounded-2xl border border-emerald-200/70 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-950 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-100">
+                      InstaPago: {latestResult.paymentProviderApi.checked ? 'consulta oficial ejecutada' : 'lookup local'} ·{' '}
+                      {latestResult.paymentProviderApi.providerCode ?? 'sin código'}
+                      {latestResult.paymentProviderApi.providerMessage
+                        ? ` · ${latestResult.paymentProviderApi.providerMessage}`
+                        : ''}
                     </div>
                   ) : null}
                 </div>
@@ -509,6 +678,33 @@ export function ManualVerificationView() {
                             : latestResult.binanceApi?.evidence?.receiverMatched === false
                               ? 'no coincide'
                               : 'no informado por Binance'}
+                        </p>
+                      </>
+                    ) : inferVerificationMethod(latestResult) === 'pago_movil' ||
+                      inferVerificationMethod(latestResult) === 'transferencia_directa' ? (
+                      <>
+                        <p className="text-sm text-muted-foreground">Evidencia oficial InstaPago</p>
+                        <p className="mt-2 font-semibold">
+                          {latestResult.paymentProviderApi?.matchedReference
+                            ? `Referencia ${latestResult.paymentProviderApi.matchedReference}`
+                            : 'Sin referencia confirmada'}
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Método: {methodLabel(inferVerificationMethod(latestResult))}
+                        </p>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Monto proveedor:{' '}
+                          {formatMoney(
+                            latestResult.paymentProviderApi?.evidence?.amount ?? latestResult.transfer.amountExpected,
+                            latestResult.paymentProviderApi?.evidence?.currency ?? latestResult.transfer.currency,
+                          )}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Fecha proveedor: {latestResult.paymentProviderApi?.evidence?.paymentDate ?? 'N/D'}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Banco origen: {latestResult.paymentProviderApi?.evidence?.originBank ?? 'N/D'} · Banco destino:{' '}
+                          {latestResult.paymentProviderApi?.evidence?.destinationBank ?? 'N/D'}
                         </p>
                       </>
                     ) : (
@@ -569,12 +765,17 @@ export function ManualVerificationView() {
                     <p className="mt-1 text-xs text-muted-foreground">
                       {inferVerificationMethod(latestResult) === 'binance'
                         ? 'Receptor Binance configurado: '
+                        : inferVerificationMethod(latestResult) === 'pago_movil' ||
+                            inferVerificationMethod(latestResult) === 'transferencia_directa'
+                          ? 'Proveedor oficial: '
                         : 'Allowlist oficial del remitente: '}
                       {latestResult.officialSenderMatched === true
                         ? 'coincide'
                         : latestResult.officialSenderMatched === false
                           ? 'no coincide'
-                          : inferVerificationMethod(latestResult) === 'binance'
+                          : inferVerificationMethod(latestResult) === 'binance' ||
+                              inferVerificationMethod(latestResult) === 'pago_movil' ||
+                              inferVerificationMethod(latestResult) === 'transferencia_directa'
                             ? 'no informado'
                             : 'desconocido'}
                     </p>
@@ -665,6 +866,9 @@ export function ManualVerificationView() {
                     <TD>
                       {inferVerificationMethod(item) === 'binance'
                         ? 'Consulta directa Binance API'
+                        : inferVerificationMethod(item) === 'pago_movil' ||
+                            inferVerificationMethod(item) === 'transferencia_directa'
+                          ? 'Consulta directa InstaPago'
                         : item.evidence?.subject ?? item.strongestEmail?.subject ?? 'Aún sin evidencia'}
                     </TD>
                     <TD>{resultReasonLabel(item)}</TD>

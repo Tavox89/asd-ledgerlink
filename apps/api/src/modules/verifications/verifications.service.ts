@@ -1,4 +1,4 @@
-import type { CreateManualVerificationInput } from '@ledgerlink/shared';
+import type { CreateManualVerificationInput, PaymentProviderVerificationInput } from '@ledgerlink/shared';
 
 import { env } from '../../config/env';
 import { dayjs } from '../../lib/dayjs';
@@ -23,6 +23,11 @@ import {
   type VerificationCandidateEmail,
 } from './exact-authorization';
 import { evaluateBinancePayAuthorization } from './binance-pay-authorization';
+import {
+  evaluateInstapagoAuthorization,
+  paymentProviderBankLabel,
+  type InstapagoVerificationMethod,
+} from './instapago-authorization';
 import { normalizeComparable } from '../email-processing/helpers';
 
 interface VerificationAutoRefreshResult {
@@ -32,7 +37,7 @@ interface VerificationAutoRefreshResult {
   processed: number;
 }
 
-export type VerificationMethod = 'zelle' | 'binance';
+export type VerificationMethod = 'zelle' | 'binance' | 'pago_movil' | 'transferencia_directa';
 
 interface VerificationFlowProfile {
   method: VerificationMethod;
@@ -128,6 +133,54 @@ function buildLookupTransfer(
       expectedWindowTo: expectedWindowTo.toISOString(),
       destinationAccountLast4: input.cuentaDestinoUltimos4 ?? null,
       customerName: input.nombreClienteOpcional ?? null,
+      notes: input.notas ?? null,
+      status: 'pending',
+      matchSummary: null,
+      confirmedAt: null,
+      rejectedAt: null,
+      deletedAt: null,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      matchCount: 0,
+    },
+    expectedWindowFrom: expectedWindowFrom.toDate(),
+    expectedWindowTo: expectedWindowTo.toDate(),
+  };
+}
+
+function resolveProviderPaymentDate(input: PaymentProviderVerificationInput) {
+  if (input.fechaPago) {
+    return input.fechaPago;
+  }
+
+  return dayjs(input.fechaOperacion).format('YYYY-MM-DD');
+}
+
+function buildProviderLookupTransfer(
+  company: { id: string; slug: string },
+  input: PaymentProviderVerificationInput,
+  method: InstapagoVerificationMethod,
+) {
+  const paymentDate = resolveProviderPaymentDate(input);
+  const expectedWindowFrom = dayjs(`${paymentDate}T00:00:00.000Z`);
+  const expectedWindowTo = dayjs(`${paymentDate}T23:59:59.999Z`);
+  const now = new Date();
+
+  return {
+    id: 'lookup',
+    persisted: false,
+    transfer: {
+      companyId: company.id,
+      companySlug: company.slug,
+      id: 'lookup',
+      referenceExpected: input.referenciaEsperada,
+      amountExpected: input.montoEsperado,
+      currency: input.moneda ?? 'VES',
+      expectedBank: paymentProviderBankLabel(method),
+      expectedWindowFrom: expectedWindowFrom.toISOString(),
+      expectedWindowTo: expectedWindowTo.toISOString(),
+      destinationAccountLast4: input.bancoDestino ?? null,
+      customerName: input.nombreClienteOpcional ?? input.cedulaCliente ?? null,
       notes: input.notas ?? null,
       status: 'pending',
       matchSummary: null,
@@ -560,6 +613,151 @@ export async function authorizeBinanceVerification(
     binanceApi: exact.binanceApi,
     autoRefresh: defaultAutoRefreshResult(),
   };
+}
+
+async function evaluateProviderVerification(
+  companySlug: string,
+  input: PaymentProviderVerificationInput,
+  method: InstapagoVerificationMethod,
+  mode: 'authorize' | 'lookup',
+) {
+  const company = await getCompanyBySlugOrThrow(companySlug);
+  const exact = await evaluateInstapagoAuthorization({
+    companyId: company.id,
+    method,
+    payload: {
+      ...input,
+      moneda: input.moneda ?? 'VES',
+    },
+    mode,
+  });
+
+  return {
+    companyId: company.id,
+    companySlug: company.slug,
+    verificationMethod: method,
+    authorized: exact.authorized,
+    reasonCode: exact.reasonCode,
+    candidateCount: exact.candidateCount,
+    senderMatchType: exact.senderMatchType,
+    evidence: exact.evidence,
+    paymentProviderApi: exact.paymentProviderApi,
+    autoRefresh: defaultAutoRefreshResult(),
+  };
+}
+
+async function lookupProviderVerification(
+  companySlug: string,
+  input: PaymentProviderVerificationInput,
+  method: InstapagoVerificationMethod,
+  mode: 'authorize' | 'lookup',
+) {
+  const company = await getCompanyBySlugOrThrow(companySlug);
+  const lookup = buildProviderLookupTransfer(company, { ...input, moneda: input.moneda ?? 'VES' }, method);
+  const exact = await evaluateInstapagoAuthorization({
+    companyId: company.id,
+    method,
+    payload: {
+      ...input,
+      moneda: input.moneda ?? 'VES',
+    },
+    mode,
+  });
+  const status = exact.authorized ? 'preconfirmed' : 'pending';
+  const now = new Date().toISOString();
+
+  return {
+    id: 'lookup',
+    persisted: false,
+    verificationMethod: method,
+    transfer: {
+      ...lookup.transfer,
+      status,
+      matchSummary: exact.authorized
+        ? {
+            score: exact.strongestAuthScore ?? 100,
+            status: 'preconfirmed',
+            criticalFlags: [],
+          }
+        : null,
+      updatedAt: now,
+      matchCount: exact.authorized ? 1 : 0,
+    },
+    status,
+    authorized: exact.authorized,
+    reasonCode: exact.reasonCode,
+    senderMatchType: exact.senderMatchType,
+    candidateCount: exact.candidateCount,
+    evidence: exact.evidence,
+    paymentProviderApi: exact.paymentProviderApi,
+    canTreatAsConfirmed: exact.authorized,
+    bestMatch: null,
+    strongestEmail: null,
+    strongestAuthStatus: exact.strongestAuthStatus,
+    strongestAuthScore: exact.strongestAuthScore,
+    officialSenderMatched: exact.officialSenderMatched,
+    riskFlags: exact.riskFlags,
+    autoRefresh: defaultAutoRefreshResult(),
+    matchCount: exact.authorized ? 1 : 0,
+    createdAt: lookup.transfer.createdAt,
+    updatedAt: now,
+  };
+}
+
+export async function authorizePagoMovilVerification(
+  companySlug: string,
+  input: PaymentProviderVerificationInput,
+) {
+  return evaluateProviderVerification(companySlug, input, 'pago_movil', 'authorize');
+}
+
+export async function authorizeTransferenciaDirectaVerification(
+  companySlug: string,
+  input: PaymentProviderVerificationInput,
+) {
+  return evaluateProviderVerification(companySlug, input, 'transferencia_directa', 'authorize');
+}
+
+export async function lookupPagoMovilVerification(
+  companySlug: string,
+  input: PaymentProviderVerificationInput,
+) {
+  return lookupProviderVerification(companySlug, input, 'pago_movil', 'lookup');
+}
+
+export async function lookupTransferenciaDirectaVerification(
+  companySlug: string,
+  input: PaymentProviderVerificationInput,
+) {
+  return lookupProviderVerification(companySlug, input, 'transferencia_directa', 'lookup');
+}
+
+export async function operatorLookupPagoMovilVerification(
+  companySlug: string,
+  input: PaymentProviderVerificationInput,
+) {
+  return lookupProviderVerification(companySlug, input, 'pago_movil', 'authorize');
+}
+
+export async function operatorLookupTransferenciaDirectaVerification(
+  companySlug: string,
+  input: PaymentProviderVerificationInput,
+) {
+  return lookupProviderVerification(companySlug, input, 'transferencia_directa', 'authorize');
+}
+
+export async function createManualPagoMovilVerification(
+  companySlug: string,
+  input: PaymentProviderVerificationInput,
+) {
+  return operatorLookupPagoMovilVerification(companySlug, input);
+}
+
+export async function createManualTransferenciaDirectaVerification(
+  companySlug: string,
+  input: PaymentProviderVerificationInput,
+) {
+  return operatorLookupTransferenciaDirectaVerification(companySlug, input);
 }
 
 export async function lookupVerification(

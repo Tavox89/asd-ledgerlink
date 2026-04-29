@@ -36,6 +36,8 @@ const LABELS: Record<string, string> = {
   amount: 'monto',
   date: 'fecha',
   identity_required: 'referencia o nombre requeridos',
+  duplicate: 'duplicado',
+  provider_error: 'error del proveedor',
   authorized: 'autorizado',
   blocked: 'bloqueado',
   default: 'predeterminado',
@@ -48,6 +50,8 @@ const LABELS: Record<string, string> = {
   transfermatch: 'coincidencia',
   allowedbanksender: 'remitente bancario permitido',
   integration_api_token: 'token de integración',
+  payment_provider_config: 'configuración de proveedor',
+  payment_provider_verification_attempt: 'intento de proveedor',
   whatsappverificationattempt: 'intento de WhatsApp',
   transfer_created: 'transferencia creada',
   transfer_updated: 'transferencia actualizada',
@@ -67,6 +71,8 @@ const LABELS: Record<string, string> = {
   allowed_sender_updated: 'remitente permitido actualizado',
   integration_token_created: 'token de integración creado',
   integration_token_revoked: 'token de integración revocado',
+  payment_provider_config_created: 'configuración de proveedor creada',
+  payment_provider_config_updated: 'configuración de proveedor actualizada',
   whatsapp_attempt_processed: 'intento de WhatsApp procesado',
 };
 

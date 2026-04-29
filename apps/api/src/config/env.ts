@@ -67,6 +67,8 @@ const envSchema = z.object({
   BINANCE_VERIFIER_URL: z.string().url().or(z.literal('')).default(''),
   BINANCE_VERIFIER_TOKEN: z.string().default(''),
   BINANCE_VERIFIER_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(10000),
+  PAYMENT_CONFIG_ENCRYPTION_KEY: z.string().default(''),
+  INSTAPAGO_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
   APP_NAME: z.string().default('LedgerLink by ASD Labs'),
   APP_OWNER: z.string().default('Tavox'),
   APP_COMPANY: z.string().default('ASD Labs'),

@@ -115,7 +115,7 @@ export async function extractVerificationFromImage(
           {
             type: 'text',
             text:
-              `Responde con este JSON exacto: {"isTransferProof":boolean,"reference":string|null,"customerName":string|null,"alias":string|null,"amount":number|null,"currency":"USD"|"VES"|"EUR"|"COP"|null,"date":"YYYY-MM-DD"|null,"time":"HH:mm"|null,"bank":string|null,"confidence":number}. Si la captura muestra un nombre del pago o destinatario, usa el nombre mas completo visible, por ejemplo el de "Enrolled as". Si la captura es de Binance, customerName debe ser el pagador/remitente si aparece; no uses como customerName el alias, correo o cuenta receptora. Si solo ves alias o correo receptor de Binance, extraelo en alias y deja customerName=null. Si la captura usa USDT, normaliza currency a USD. Toma como fecha de referencia ${dayjs(referenceDate).format('YYYY-MM-DD')}. Si la captura dice Today/Hoy, usa esa fecha; si dice Yesterday/Ayer, usa el dia anterior. Marca isTransferProof=true si la imagen parece contener evidencia razonable de transferencia o pago aunque este recortada, reenviada, comprimida o parcialmente visible. Si faltan campos, deja null solo en los que no se vean. Usa isTransferProof=false solo cuando claramente no parezca un comprobante o captura de pago.`,
+              `Responde con este JSON exacto: {"isTransferProof":boolean,"reference":string|null,"customerName":string|null,"alias":string|null,"amount":number|null,"currency":"USD"|"VES"|"EUR"|"COP"|null,"date":"YYYY-MM-DD"|null,"time":"HH:mm"|null,"bank":string|null,"originBank":string|null,"destinationBank":string|null,"clientId":string|null,"phoneNumber":string|null,"confidence":number}. Si la captura muestra un nombre del pago o destinatario, usa el nombre mas completo visible, por ejemplo el de "Enrolled as". Si la captura es de Binance, customerName debe ser el pagador/remitente si aparece; no uses como customerName el alias, correo o cuenta receptora. Si solo ves alias o correo receptor de Binance, extraelo en alias y deja customerName=null. Si es Pago Movil o transferencia bancaria venezolana, extrae referencia, monto, fecha, banco origen, banco destino, cedula/RIF y telefono si aparecen; los bancos deben ser codigos de 4 digitos si se ven. Si la captura usa USDT, normaliza currency a USD. Toma como fecha de referencia ${dayjs(referenceDate).format('YYYY-MM-DD')}. Si la captura dice Today/Hoy, usa esa fecha; si dice Yesterday/Ayer, usa el dia anterior. Marca isTransferProof=true si la imagen parece contener evidencia razonable de transferencia o pago aunque este recortada, reenviada, comprimida o parcialmente visible. Si faltan campos, deja null solo en los que no se vean. Usa isTransferProof=false solo cuando claramente no parezca un comprobante o captura de pago.`,
           },
           {
             type: 'image_url',
@@ -139,6 +139,10 @@ export async function extractVerificationFromImage(
     date?: string | null;
     time?: string | null;
     bank?: string | null;
+    originBank?: string | null;
+    destinationBank?: string | null;
+    clientId?: string | null;
+    phoneNumber?: string | null;
     confidence?: number | null;
   }>(rawText);
 
@@ -152,6 +156,10 @@ export async function extractVerificationFromImage(
       date: null,
       time: null,
       bank: null,
+      originBank: null,
+      destinationBank: null,
+      clientId: null,
+      phoneNumber: null,
       confidence: 0,
       rawText,
       failureReason: 'invalid_json',
@@ -168,6 +176,10 @@ export async function extractVerificationFromImage(
     date: normalizeRelativeDate(parsed.date, referenceDate),
     time: parsed.time?.trim() || null,
     bank: parsed.bank?.trim() || null,
+    originBank: parsed.originBank?.trim() || null,
+    destinationBank: parsed.destinationBank?.trim() || null,
+    clientId: parsed.clientId?.trim() || null,
+    phoneNumber: parsed.phoneNumber?.trim() || null,
     confidence:
       typeof parsed.confidence === 'number'
         ? Math.max(0, Math.min(100, parsed.confidence))

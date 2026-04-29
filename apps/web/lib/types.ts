@@ -55,6 +55,23 @@ export interface CompanyRecord {
     allowedTestNumbers: string[];
     isActive: boolean;
   } | null;
+  paymentProviderConfigs?: PaymentProviderConfigRecord[];
+}
+
+export interface PaymentProviderConfigRecord {
+  companyId?: string | null;
+  companySlug?: string | null;
+  id: string;
+  provider: string;
+  isActive: boolean;
+  apiBaseUrl: string;
+  defaultReceiptBank: string;
+  defaultOriginBank?: string | null;
+  hasKeyId: boolean;
+  hasPublicKeyId: boolean;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface IntegrationApiTokenRecord {
@@ -315,6 +332,36 @@ export interface VerificationRecord {
       referenceMatched: boolean;
       nameMatched: boolean;
       amountMatched: boolean;
+    } | null;
+  };
+  paymentProviderApi?: {
+    provider: 'instapago';
+    method: 'pago_movil' | 'transferencia_directa';
+    checked: boolean;
+    configured: boolean;
+    providerCode?: string | null;
+    providerMessage?: string | null;
+    matchedReference?: string | null;
+    transactionCount: number;
+    errorCode?: string;
+    evidence?: {
+      source: 'instapago_api';
+      reference?: string | null;
+      destinationReference?: string | null;
+      amount?: number | null;
+      currency: string;
+      paymentDate?: string | null;
+      originBank?: string | null;
+      destinationBank?: string | null;
+      clientId?: string | null;
+      phoneNumber?: string | null;
+      referenceMatched: boolean;
+      amountMatched: boolean;
+      dateMatched: boolean;
+      originBankMatched: boolean | 'unknown';
+      destinationBankMatched: boolean | 'unknown';
+      clientIdMatched: boolean | 'unknown';
+      phoneMatched: boolean | 'unknown';
     } | null;
   };
   canTreatAsConfirmed: boolean;

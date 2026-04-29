@@ -89,6 +89,15 @@ enum ActorType {
   JOB
 }
 
+enum PaymentProvider {
+  INSTAPAGO
+}
+
+enum PaymentProviderMethod {
+  PAGO_MOVIL
+  TRANSFERENCIA_DIRECTA
+}
+
 model CompanyProfile {
   id                       String                       @id @default(cuid())
   slug                     String                       @unique
@@ -107,6 +116,8 @@ model CompanyProfile {
   manualReviews            ManualReview[]
   allowedBankSenders       AllowedBankSender[]
   integrationApiTokens     IntegrationApiToken[]
+  paymentProviderConfigs   CompanyPaymentProviderConfig[]
+  paymentProviderVerificationAttempts PaymentProviderVerificationAttempt[]
   whatsAppChannel          WhatsAppChannel?
   whatsAppConversations    WhatsAppConversation[]
   whatsAppInboundMessages  WhatsAppInboundMessage[]
@@ -114,6 +125,55 @@ model CompanyProfile {
   auditLogs                AuditLog[]
 
   @@index([isActive, name])
+}
+
+model CompanyPaymentProviderConfig {
+  id                   String          @id @default(cuid())
+  companyId            String
+  provider             PaymentProvider
+  isActive             Boolean         @default(true)
+  apiBaseUrl           String
+  keyIdEncrypted       String
+  publicKeyIdEncrypted String
+  defaultReceiptBank   String
+  defaultOriginBank    String?
+  metadata             Json?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  company              CompanyProfile  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, provider])
+  @@index([companyId, isActive])
+}
+
+model PaymentProviderVerificationAttempt {
+  id                String                @id @default(cuid())
+  companyId         String
+  provider          PaymentProvider
+  method            PaymentProviderMethod
+  externalRequestId String?
+  referenceExpected String
+  amountExpected    Decimal               @db.Decimal(18, 2)
+  currency          Currency
+  operationDate     DateTime
+  requestPayload    Json?
+  providerRequest   Json?
+  providerResponse  Json?
+  authorized        Boolean               @default(false)
+  reasonCode        String
+  providerCode      String?
+  providerMessage   String?
+  matchedReference  String?
+  evidence          Json?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  company           CompanyProfile        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, provider, method, externalRequestId])
+  @@index([companyId, provider, method, createdAt(sort: Desc)], map: "payment_provider_attempt_company_method_created_idx")
+  @@index([companyId, provider, method, referenceExpected], map: "payment_provider_attempt_company_method_ref_idx")
 }
 
 model IntegrationApiToken {

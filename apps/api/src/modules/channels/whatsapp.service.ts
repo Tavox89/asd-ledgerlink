@@ -9,7 +9,12 @@ import { prisma } from '../../lib/prisma';
 import { ActorType, WhatsAppConversationStatus, WhatsAppVerificationAttemptStatus } from '../../lib/prisma-runtime';
 import { serializeWhatsAppVerificationAttempt } from '../../lib/serializers';
 import { DEFAULT_COMPANY_SLUG, getCompanyBySlugOrThrow } from '../companies/companies.service';
-import { authorizeBinanceVerification, authorizeVerification } from '../verifications/verifications.service';
+import {
+  authorizeBinanceVerification,
+  authorizePagoMovilVerification,
+  authorizeTransferenciaDirectaVerification,
+  authorizeVerification,
+} from '../verifications/verifications.service';
 import {
   buildAuthorizedReply,
   buildBlockedReply,
@@ -68,10 +73,16 @@ type StoredWhatsAppAttemptRecord = Prisma.WhatsAppVerificationAttemptGetPayload<
 
 type WhatsAppAuthorizationResult =
   | Awaited<ReturnType<typeof authorizeVerification>>
-  | Awaited<ReturnType<typeof authorizeBinanceVerification>>;
+  | Awaited<ReturnType<typeof authorizeBinanceVerification>>
+  | Awaited<ReturnType<typeof authorizePagoMovilVerification>>
+  | Awaited<ReturnType<typeof authorizeTransferenciaDirectaVerification>>;
 
 function getBinanceApiSummary(result: WhatsAppAuthorizationResult) {
   return 'binanceApi' in result ? result.binanceApi : null;
+}
+
+function getPaymentProviderApiSummary(result: WhatsAppAuthorizationResult) {
+  return 'paymentProviderApi' in result ? result.paymentProviderApi : null;
 }
 
 function parseStoredPartialPayload(value: unknown): Partial<CollectedVerificationInput> | null {
@@ -97,6 +108,26 @@ function buildVerificationInput(
     cuentaDestinoUltimos4: null,
     nombreClienteOpcional: input.customerName,
     notas: buildVerificationNotes(strategy, method),
+  };
+}
+
+function buildPaymentProviderVerificationInput(
+  input: CollectedVerificationInput,
+  strategy: { fechaOperacion: string; toleranciaMinutos: number },
+) {
+  return {
+    referenciaEsperada: input.reference ?? '',
+    montoEsperado: input.amount ?? 0,
+    moneda: 'VES' as const,
+    fechaPago: strategy.fechaOperacion.slice(0, 10),
+    fechaOperacion: strategy.fechaOperacion,
+    bancoOrigen: input.originBank,
+    bancoDestino: input.destinationBank,
+    cedulaCliente: input.clientId,
+    telefonoCliente: input.phoneNumber,
+    nombreClienteOpcional: input.customerName,
+    notas: `WhatsApp pilot (provider:${strategy.fechaOperacion})`,
+    externalRequestId: null,
   };
 }
 
@@ -475,7 +506,7 @@ export async function processIncomingTwilioWebhook(
     imageExtraction,
     mergedInput,
   });
-  const missingFields = getMissingVerificationFields(mergedInput);
+  const missingFields = getMissingVerificationFields(mergedInput, verificationMethod);
   const shouldSendImageFallback =
     Boolean(firstImage) &&
     imageExtraction !== null &&
@@ -647,11 +678,27 @@ export async function processIncomingTwilioWebhook(
   }> = [];
 
   for (const strategy of strategies) {
-    const verificationInput = buildVerificationInput(verificationMethod, mergedInput, strategy);
-    const result =
-      verificationMethod === 'binance'
-        ? await authorizeBinanceVerification(channel.company.slug, verificationInput)
-        : await authorizeVerification(channel.company.slug, verificationInput);
+    const result = await (async () => {
+      if (verificationMethod === 'pago_movil') {
+        return authorizePagoMovilVerification(
+          channel.company.slug,
+          buildPaymentProviderVerificationInput(mergedInput, strategy),
+        );
+      }
+
+      if (verificationMethod === 'transferencia_directa') {
+        return authorizeTransferenciaDirectaVerification(
+          channel.company.slug,
+          buildPaymentProviderVerificationInput(mergedInput, strategy),
+        );
+      }
+
+      const verificationInput = buildVerificationInput(verificationMethod, mergedInput, strategy);
+      return verificationMethod === 'binance'
+        ? authorizeBinanceVerification(channel.company.slug, verificationInput)
+        : authorizeVerification(channel.company.slug, verificationInput);
+    })();
+
     strategyResults.push({
       strategy,
       result,
@@ -667,10 +714,16 @@ export async function processIncomingTwilioWebhook(
   }
 
   const selectedBinanceApiSummary = getBinanceApiSummary(selected.result);
+  const selectedPaymentProviderApiSummary = getPaymentProviderApiSummary(selected.result);
+  const replyInput =
+    verificationMethod === 'pago_movil' || verificationMethod === 'transferencia_directa'
+      ? { ...mergedInput, currency: 'VES' as const }
+      : mergedInput;
   const replyText = selected.result.authorized
-    ? buildAuthorizedReply(verificationMethod, mergedInput, selected.strategy.label)
-    : buildBlockedReply(verificationMethod, mergedInput, selected.result.reasonCode, selected.strategy.label, {
+    ? buildAuthorizedReply(verificationMethod, replyInput, selected.strategy.label)
+    : buildBlockedReply(verificationMethod, replyInput, selected.result.reasonCode, selected.strategy.label, {
         binanceApiErrorCode: selectedBinanceApiSummary?.errorCode ?? null,
+        paymentProviderApiErrorCode: selectedPaymentProviderApiSummary?.errorCode ?? null,
       });
   const shouldKeepDateFollowUpOpen = !selected.result.authorized && selected.result.reasonCode === 'date';
 
@@ -713,6 +766,7 @@ export async function processIncomingTwilioWebhook(
         evidence: item.result.evidence,
         autoRefresh: item.result.autoRefresh,
         binanceApi: getBinanceApiSummary(item.result),
+        paymentProviderApi: getPaymentProviderApiSummary(item.result),
       },
     })),
     finalResult: {
@@ -723,6 +777,7 @@ export async function processIncomingTwilioWebhook(
       replyText,
       evidence: selected.result.evidence,
       binanceApi: selectedBinanceApiSummary,
+      paymentProviderApi: selectedPaymentProviderApiSummary,
     },
     rawPayload: body,
   });

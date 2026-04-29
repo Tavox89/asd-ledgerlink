@@ -29,6 +29,7 @@ export async function getCompanyBySlugOrThrow(companySlug: string) {
         },
       },
       whatsAppChannel: true,
+      paymentProviderConfigs: true,
     },
   });
 
@@ -59,6 +60,7 @@ export async function getDefaultCompanyOrThrow() {
         },
       },
       whatsAppChannel: true,
+      paymentProviderConfigs: true,
     },
   });
 
@@ -172,6 +174,7 @@ export async function listCompanies() {
         },
       },
       whatsAppChannel: true,
+      paymentProviderConfigs: true,
     },
     orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
   });

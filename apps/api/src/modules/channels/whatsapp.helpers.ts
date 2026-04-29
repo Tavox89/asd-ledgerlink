@@ -32,6 +32,10 @@ export interface TextExtractionResult {
   amount: number | null;
   currency: CurrencyCode | null;
   bank: string | null;
+  originBank: string | null;
+  destinationBank: string | null;
+  clientId: string | null;
+  phoneNumber: string | null;
   date: string | null;
   time: string | null;
   confidence: number;
@@ -48,6 +52,10 @@ export interface VisionExtractionResult {
   date: string | null;
   time: string | null;
   bank: string | null;
+  originBank?: string | null;
+  destinationBank?: string | null;
+  clientId?: string | null;
+  phoneNumber?: string | null;
   confidence: number;
   rawText?: string;
   failureReason?: 'invalid_json' | 'not_transfer_proof' | 'download_failed' | 'unknown';
@@ -61,11 +69,15 @@ export interface CollectedVerificationInput {
   currency: CurrencyCode;
   currencySource: 'text' | 'image' | 'state' | 'default';
   bank: string | null;
+  originBank: string | null;
+  destinationBank: string | null;
+  clientId: string | null;
+  phoneNumber: string | null;
   extractedDate: string | null;
   extractedTime: string | null;
 }
 
-export type VerificationPaymentMethod = 'zelle' | 'binance' | 'unknown';
+export type VerificationPaymentMethod = 'zelle' | 'binance' | 'pago_movil' | 'transferencia_directa' | 'unknown';
 
 export interface VerificationStrategyInput {
   code: 'verification_moment' | 'current_date_day' | 'extracted_datetime' | 'extracted_date_day';
@@ -144,6 +156,55 @@ function cleanCustomerName(value: string) {
 function extractAlias(text: string) {
   const match = text.match(/alias[:\s-]*([A-Za-zÁÉÍÓÚÑáéíóúñ0-9_.-]{2,})/i);
   return match?.[1] ? normalizeDisplayText(match[1]).replace(/[.,;:]+$/g, '') : null;
+}
+
+function extractClientId(text: string) {
+  const match = text.match(/\b(?:cedula|c[eé]dula|rif|ci|documento|identificaci[oó]n)\b[:\s-]*([VEJPGvejpg]?\d{5,12})/i);
+  return match?.[1] ? match[1].toUpperCase().replace(/[^A-Z0-9]/g, '') : null;
+}
+
+function extractPhoneNumber(text: string) {
+  const match = text.match(/\b(?:telefono|tel[eé]fono|phone|celular|tlf)\b[:\s-]*(\+?\d[\d\s().-]{8,})/i);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const normalized = match[1].replace(/[^\d+]/g, '');
+  return normalized || null;
+}
+
+function extractBankCode(text: string, labels: string[]) {
+  for (const label of labels) {
+    const pattern = new RegExp(`${label}[^0-9]{0,20}(\\d{4})`, 'i');
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+
+  return null;
+}
+
+function extractProviderBanks(text: string) {
+  const originBank = extractBankCode(text, [
+    'banco\\s+origen',
+    'origen',
+    'banco\\s+emisor',
+    'emisor',
+    'desde\\s+el\\s+banco',
+  ]);
+  const destinationBank = extractBankCode(text, [
+    'banco\\s+destino',
+    'destino',
+    'banco\\s+receptor',
+    'receptor',
+    'receipt\\s*bank',
+  ]);
+
+  return {
+    originBank,
+    destinationBank,
+  };
 }
 
 function extractCustomerName(text: string) {
@@ -323,6 +384,10 @@ export function extractVerificationFromText(
       amount: null,
       currency: null,
       bank: null,
+      originBank: null,
+      destinationBank: null,
+      clientId: null,
+      phoneNumber: null,
       date: null,
       time: null,
       confidence: 0,
@@ -334,11 +399,17 @@ export function extractVerificationFromText(
   const { date, time } = extractDateCandidate(normalizedText, referenceDate);
   const customerName = extractCustomerName(normalizedText);
   const alias = extractAlias(normalizedText);
+  const providerBanks = extractProviderBanks(normalizedText);
+  const clientId = extractClientId(normalizedText);
+  const phoneNumber = extractPhoneNumber(normalizedText);
 
   let confidence = 20;
   if (amountSnapshot.amount !== null) confidence += 20;
   if (extractReference(normalizedText)) confidence += 20;
   if (customerName) confidence += 10;
+  if (clientId) confidence += 10;
+  if (phoneNumber) confidence += 10;
+  if (providerBanks.originBank || providerBanks.destinationBank) confidence += 5;
   if (date) confidence += 10;
   if (time) confidence += 5;
   if (inferBankName(normalizedText, null)) confidence += 5;
@@ -350,6 +421,10 @@ export function extractVerificationFromText(
     amount: amountSnapshot.amount,
     currency: amountSnapshot.currency,
     bank: inferBankName(normalizedText, null),
+    originBank: providerBanks.originBank,
+    destinationBank: providerBanks.destinationBank,
+    clientId,
+    phoneNumber,
     date,
     time,
     confidence,
@@ -413,6 +488,30 @@ export function mergeCollectedVerificationInput(
     existingState?.bank ??
     null;
 
+  const originBank =
+    textExtraction.originBank ??
+    imageFields?.originBank ??
+    existingState?.originBank ??
+    null;
+
+  const destinationBank =
+    textExtraction.destinationBank ??
+    imageFields?.destinationBank ??
+    existingState?.destinationBank ??
+    null;
+
+  const clientId =
+    textExtraction.clientId ??
+    imageFields?.clientId ??
+    existingState?.clientId ??
+    null;
+
+  const phoneNumber =
+    textExtraction.phoneNumber ??
+    imageFields?.phoneNumber ??
+    existingState?.phoneNumber ??
+    null;
+
   let currencySource: CollectedVerificationInput['currencySource'] = 'default';
   if (textExtraction.currency) {
     currencySource = 'text';
@@ -430,6 +529,10 @@ export function mergeCollectedVerificationInput(
     currency: explicitCurrency ?? 'USD',
     currencySource,
     bank,
+    originBank,
+    destinationBank,
+    clientId,
+    phoneNumber,
     extractedDate,
     extractedTime,
   };
@@ -455,6 +558,10 @@ export function detectVerificationMethod(input: {
       input.imageExtraction?.rawText,
       input.mergedInput.alias,
       input.imageExtraction?.alias,
+      input.textExtraction.clientId,
+      input.textExtraction.phoneNumber,
+      input.imageExtraction?.clientId,
+      input.imageExtraction?.phoneNumber,
     ]
       .filter(Boolean)
       .join(' '),
@@ -469,6 +576,20 @@ export function detectVerificationMethod(input: {
     return 'binance';
   }
 
+  if (/\bpago\s*m[oó]vil\b|\bp2p\b/i.test(rawSignal)) {
+    return 'pago_movil';
+  }
+
+  if (
+    /\btransferencia\s+directa\b|\btransferencia\b|\bbanco\s+origen\b|\bbanco\s+destino\b|\bp2c\b/i.test(rawSignal)
+  ) {
+    return 'transferencia_directa';
+  }
+
+  if (/\btelefono\b|\btel[eé]fono\b/i.test(rawSignal)) {
+    return 'pago_movil';
+  }
+
   if (
     bankSignal.length > 0 ||
     /\bref\b|\breferencia\b|\breference\b|\breference\s*id\b|\benrolled as\b/i.test(rawSignal)
@@ -479,8 +600,34 @@ export function detectVerificationMethod(input: {
   return 'unknown';
 }
 
-export function getMissingVerificationFields(input: CollectedVerificationInput) {
+export function getMissingVerificationFields(
+  input: CollectedVerificationInput,
+  method: VerificationPaymentMethod = 'zelle',
+) {
   const missing: string[] = [];
+  if (method === 'pago_movil' || method === 'transferencia_directa') {
+    if (!input.reference) {
+      missing.push('referencia');
+    }
+    if (input.amount === null || input.amount === undefined) {
+      missing.push('monto');
+    }
+    if (!input.clientId) {
+      missing.push('cedula/RIF');
+    }
+    if (method === 'pago_movil' && !input.phoneNumber) {
+      missing.push('telefono');
+    }
+    if (!input.originBank) {
+      missing.push('banco origen');
+    }
+    if (!input.destinationBank) {
+      missing.push('banco destino');
+    }
+
+    return missing;
+  }
+
   if (!input.reference && !input.customerName) {
     missing.push('referencia o nombre');
   }
@@ -502,7 +649,7 @@ export function buildVerificationStrategies(
   verificationMoment: Date,
   method: VerificationPaymentMethod = 'zelle',
 ): VerificationStrategyInput[] {
-  if (method === 'binance') {
+  if (method === 'binance' || method === 'pago_movil' || method === 'transferencia_directa') {
     const date = input.extractedDate ?? dayjs(verificationMoment).format('YYYY-MM-DD');
 
     return [
@@ -607,15 +754,25 @@ export function buildMissingFieldsReply(missingFields: string[]) {
 }
 
 export function buildUnknownMethodReply() {
-  return 'Necesito saber si el pago es Zelle o Binance, o ver un comprobante más claro para continuar.';
+  return 'Necesito saber si el pago es Zelle, Binance, Pago Movil o Transferencia, o ver un comprobante mas claro para continuar.';
 }
 
 function methodLabel(method: Exclude<VerificationPaymentMethod, 'unknown'>) {
-  return method === 'binance' ? 'Binance' : 'Zelle';
+  switch (method) {
+    case 'binance':
+      return 'Binance';
+    case 'pago_movil':
+      return 'Pago movil';
+    case 'transferencia_directa':
+      return 'Transferencia directa';
+    default:
+      return 'Zelle';
+  }
 }
 
 interface BlockedReplyOptions {
   binanceApiErrorCode?: string | null;
+  paymentProviderApiErrorCode?: string | null;
 }
 
 function translateBinanceApiError(errorCode?: string | null) {
@@ -647,6 +804,27 @@ function translateBinanceApiError(errorCode?: string | null) {
   return 'Binance API devolvio un error al consultar la operacion';
 }
 
+function translatePaymentProviderError(errorCode?: string | null) {
+  const normalized = (errorCode ?? '').toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.includes('not_configured')) {
+    return 'InstaPago no esta configurado o esta inactivo para esta empresa';
+  }
+
+  if (normalized.includes('timeout')) {
+    return 'InstaPago no respondio a tiempo';
+  }
+
+  if (normalized.includes('required_field_missing')) {
+    return 'faltan datos obligatorios para consultar InstaPago';
+  }
+
+  return 'InstaPago devolvio un error al consultar el pago';
+}
+
 export function translateVerificationReason(
   reasonCode: VerificationReasonCode,
   method: Exclude<VerificationPaymentMethod, 'unknown'> = 'zelle',
@@ -673,6 +851,34 @@ export function translateVerificationReason(
         return 'se requiere ID de orden o nombre del pagador para consultar Binance';
       default:
         return 'se encontro evidencia exacta en Binance';
+    }
+  }
+
+  if (method === 'pago_movil' || method === 'transferencia_directa') {
+    const providerErrorReason = translatePaymentProviderError(options.paymentProviderApiErrorCode);
+    if (providerErrorReason) {
+      return providerErrorReason;
+    }
+
+    switch (reasonCode) {
+      case 'sender':
+        return 'el banco origen o destino no coincide con la respuesta oficial';
+      case 'name':
+        return method === 'pago_movil'
+          ? 'la cedula/RIF o el telefono no coincide con el pago oficial'
+          : 'la cedula/RIF no coincide con la transferencia oficial';
+      case 'reference':
+        return 'la referencia no fue confirmada por InstaPago';
+      case 'amount':
+        return 'el monto no coincide con el pago oficial';
+      case 'date':
+        return 'no se encontro el pago en la fecha indicada';
+      case 'duplicate':
+        return 'InstaPago indica que este pago ya fue validado anteriormente';
+      case 'provider_error':
+        return 'no se pudo completar la consulta oficial con InstaPago';
+      default:
+        return 'InstaPago confirmo el pago';
     }
   }
 

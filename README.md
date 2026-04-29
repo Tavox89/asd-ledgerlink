@@ -88,7 +88,7 @@ curl -X POST http://localhost:4000/gmail/pubsub/pull
 
 8. Review stored emails in `/companies/<slug>/emails`
 9. Create expected transfers in `/companies/<slug>/transfers/new`
-10. Use `/companies/<slug>/verifications` to query Zelle stored inbox evidence with `reference`, `name`, or both, plus `amount + date` after the email arrives. The same screen lets the operator switch to `Binance`, which consults Binance API directly by default or a private verifier service when `BINANCE_VERIFIER_URL` is configured. Binance keys must allow the egress IP used by whichever verifier is active; if Binance rejects the request by IP or location, the UI and WhatsApp reply expose that API error instead of using Gmail sender wording.
+10. Use `/companies/<slug>/verifications` to query Zelle stored inbox evidence with `reference`, `name`, or both, plus `amount + date` after the email arrives. The same screen lets the operator switch to `Binance`, `Pago Movil`, or `Transferencia directa`. Binance consults Binance API directly or a private verifier; Pago Movil and Transferencia consult InstaPago/Multibanco directly.
 11. Create a company integration token before connecting WordPress/OpenPOS or another external bridge
 12. Use `POST /companies/:companySlug/verifications/authorize` when an external system needs a binary close/no-close authorization with evidence. Identity can be driven by exact `referenciaEsperada`, exact `nombreClienteOpcional`, or both together.
 13. Create a tracked verification request from the same screen only when you need manual follow-up
@@ -109,6 +109,8 @@ Auth and Gmail:
 - `GET /companies/:companySlug/integration-tokens`
 - `POST /companies/:companySlug/integration-tokens`
 - `POST /companies/:companySlug/integration-tokens/:id/revoke`
+- `GET /companies/:companySlug/payment-providers/instapago`
+- `PUT /companies/:companySlug/payment-providers/instapago`
 - `GET /companies/:companySlug/auth/google/start`
 - `GET /companies/:companySlug/gmail/accounts/:id/auth/google/start`
 - `GET /companies/:companySlug/gmail/profile`
@@ -125,6 +127,14 @@ Auth and Gmail:
 - `POST /companies/:companySlug/verifications/binance/lookup`
 - `POST /companies/:companySlug/verifications/binance/authorize`
 - `POST /companies/:companySlug/verifications/binance/manual`
+- `POST /companies/:companySlug/verifications/pago-movil/operator-lookup`
+- `POST /companies/:companySlug/verifications/pago-movil/lookup`
+- `POST /companies/:companySlug/verifications/pago-movil/authorize`
+- `POST /companies/:companySlug/verifications/pago-movil/manual`
+- `POST /companies/:companySlug/verifications/transferencia-directa/operator-lookup`
+- `POST /companies/:companySlug/verifications/transferencia-directa/lookup`
+- `POST /companies/:companySlug/verifications/transferencia-directa/authorize`
+- `POST /companies/:companySlug/verifications/transferencia-directa/manual`
 - `GET /companies/:companySlug/verifications/:id`
 - `POST /companies/:companySlug/verifications/:id/confirm`
 - `POST /companies/:companySlug/verifications/:id/reject`
@@ -169,6 +179,8 @@ Legacy aliases for Gmail, verifications, transfers, matches, reviews, audit, and
 - Company-level Gmail sync, watch register/renew, and manual Pub/Sub pull now operate across every connected inbox in that company and return per-inbox results.
 - `POST /companies/:companySlug/verifications/lookup` and `POST /companies/:companySlug/verifications/authorize` are now bearer-protected integration endpoints for external systems such as the ASD PayVerify Bridge.
 - Binance integration uses the parallel routes `/companies/:companySlug/verifications/binance/*` but keeps the same base payload shape (`referenciaEsperada`, `nombreClienteOpcional`, `montoEsperado`, `fechaOperacion`, and `toleranciaMinutos`). Binance authorization checks the official Binance Pay history API directly unless `BINANCE_VERIFIER_URL` and `BINANCE_VERIFIER_TOKEN` are set, in which case LedgerLink delegates only the Binance lookup to that private verifier. Gmail is not used as Binance evidence.
+- Pago Movil and Transferencia Directa use `/companies/:companySlug/verifications/pago-movil/*` and `/companies/:companySlug/verifications/transferencia-directa/*`. They do not use Gmail or sender rules; the authority is the InstaPago/Multibanco API configured per company. `/authorize`, `/operator-lookup`, and `/manual` call the provider; protected `/lookup` is local/non-destructive and returns prior attempts when available.
+- InstaPago credentials are saved from `/companies` and encrypted with `PAYMENT_CONFIG_ENCRYPTION_KEY`. Full credentials are never returned by the API after saving.
 - `POST /companies/:companySlug/verifications/operator-lookup` keeps the internal operator UI flow working without a bearer token until operator auth exists.
 - Protected Zelle integration calls still do one automatic Pub/Sub pull and recheck when the first pass still has no exact candidate.
 - Zelle exact verification windows use the email arrival time in the inbox (`internalDate`, with stored `receivedAt` as fallback), not the transfer date parsed from the email body. Binance uses Binance Pay `transactionTime`.
@@ -189,9 +201,10 @@ Legacy aliases for Gmail, verifications, transfers, matches, reviews, audit, and
 
 - The Twilio line can point to only one webhook at a time. If it points to LedgerLink, `cerebro` stops receiving that WhatsApp line during the pilot.
 - The pilot accepts either free text, an image comprobante, or both in the same message.
-- The same WhatsApp line now supports both `Zelle` and `Binance`; the backend classifies the method before choosing the authorization flow.
+- The same WhatsApp line now supports `Zelle`, `Binance`, `Pago Movil`, and `Transferencia`; the backend classifies the method before choosing the authorization flow.
 - WhatsApp verification tries the verification moment first, then any extracted datetime, and finally a whole-day strategy when only the date is available.
 - Binance WhatsApp verification shares that line but authorizes against Binance Pay history using `Order ID`, payer name, amount and date. Screenshots only extract those values; `USDT` is still normalized operationally to `USD`.
+- Pago Movil and Transferencia WhatsApp verification extract reference, amount, date, bank codes, cedula/RIF, and phone when present, then call InstaPago with date-level validation.
 - Text fields override image extraction when both are present.
 - Allowed pilot phone numbers now live on each company's `WhatsAppChannel`; `WHATSAPP_ALLOWED_TEST_NUMBERS` is only used to seed or backfill the initial `default` channel.
 

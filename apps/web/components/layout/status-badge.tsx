@@ -39,6 +39,8 @@ const statusMap: Record<string, 'neutral' | 'success' | 'warning' | 'danger' | '
   amount: 'warning',
   date: 'warning',
   identity_required: 'warning',
+  duplicate: 'danger',
+  provider_error: 'danger',
   authorized: 'success',
 };
 

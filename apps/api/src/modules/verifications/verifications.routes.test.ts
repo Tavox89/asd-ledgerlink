@@ -8,10 +8,18 @@ import { errorHandler } from '../../middleware/error-handler';
 
 const authorizeVerification = vi.fn();
 const authorizeBinanceVerification = vi.fn();
+const authorizePagoMovilVerification = vi.fn();
+const authorizeTransferenciaDirectaVerification = vi.fn();
 const lookupVerification = vi.fn();
 const lookupBinanceVerification = vi.fn();
+const lookupPagoMovilVerification = vi.fn();
+const lookupTransferenciaDirectaVerification = vi.fn();
+const operatorLookupPagoMovilVerification = vi.fn();
+const operatorLookupTransferenciaDirectaVerification = vi.fn();
 const createManualVerification = vi.fn();
 const createManualBinanceVerification = vi.fn();
+const createManualPagoMovilVerification = vi.fn();
+const createManualTransferenciaDirectaVerification = vi.fn();
 const listVerifications = vi.fn();
 const getVerificationById = vi.fn();
 const confirmVerification = vi.fn();
@@ -26,10 +34,18 @@ const prismaMock = {
 vi.mock('./verifications.service', () => ({
   authorizeVerification,
   authorizeBinanceVerification,
+  authorizePagoMovilVerification,
+  authorizeTransferenciaDirectaVerification,
   lookupVerification,
   lookupBinanceVerification,
+  lookupPagoMovilVerification,
+  lookupTransferenciaDirectaVerification,
+  operatorLookupPagoMovilVerification,
+  operatorLookupTransferenciaDirectaVerification,
   createManualVerification,
   createManualBinanceVerification,
+  createManualPagoMovilVerification,
+  createManualTransferenciaDirectaVerification,
   listVerifications,
   getVerificationById,
   confirmVerification,
@@ -62,6 +78,31 @@ const validBinancePayload = {
   cuentaDestinoUltimos4: null,
   nombreClienteOpcional: 'Edelynr',
   notas: 'Source: whatsapp',
+};
+
+const validPagoMovilPayload = {
+  referenciaEsperada: '028251997974',
+  montoEsperado: '1,00',
+  moneda: 'VES',
+  fechaPago: '2023-10-17',
+  bancoOrigen: '0134',
+  bancoDestino: '0134',
+  cedulaCliente: 'V0000000',
+  telefonoCliente: '+584240000000',
+  nombreClienteOpcional: null,
+  notas: null,
+};
+
+const validTransferenciaPayload = {
+  referenciaEsperada: '028251997974',
+  montoEsperado: 1,
+  moneda: 'VES',
+  fechaPago: '2023-10-17',
+  bancoOrigen: '0134',
+  bancoDestino: '0134',
+  cedulaCliente: 'V0000000',
+  nombreClienteOpcional: null,
+  notas: null,
 };
 
 describe('verification routes', () => {
@@ -398,6 +439,144 @@ describe('verification routes', () => {
     expect(response.body).toMatchObject({
       verificationMethod: 'binance',
       status: 'preconfirmed',
+    });
+  });
+
+  it('routes Pago Movil operator lookup through the InstaPago provider flow', async () => {
+    const { verificationsRouter } = await import('./verifications.routes');
+    const app = express();
+    app.use(express.json());
+    app.use(verificationsRouter);
+    app.use(errorHandler);
+
+    operatorLookupPagoMovilVerification.mockResolvedValue({
+      id: 'lookup',
+      persisted: false,
+      verificationMethod: 'pago_movil',
+      status: 'preconfirmed',
+      authorized: true,
+      reasonCode: 'authorized',
+      senderMatchType: 'none',
+      candidateCount: 1,
+      evidence: null,
+      paymentProviderApi: {
+        provider: 'instapago',
+        method: 'pago_movil',
+        checked: true,
+        configured: true,
+        providerCode: '201',
+        providerMessage: 'Se ha encontrado un pago, exitosamente',
+        matchedReference: '028251997974',
+        transactionCount: 1,
+        evidence: null,
+      },
+      transfer: {
+        id: 'lookup',
+        referenceExpected: '028251997974',
+        amountExpected: 1,
+        currency: 'VES',
+        expectedBank: 'Pago Movil InstaPago',
+        expectedWindowFrom: '2023-10-17T00:00:00.000Z',
+        expectedWindowTo: '2023-10-17T23:59:59.999Z',
+        destinationAccountLast4: '0134',
+        customerName: 'V0000000',
+        notes: null,
+        status: 'preconfirmed',
+        matchCount: 1,
+      },
+      canTreatAsConfirmed: true,
+      bestMatch: null,
+      strongestEmail: null,
+      strongestAuthStatus: 'high',
+      strongestAuthScore: 100,
+      officialSenderMatched: true,
+      riskFlags: [],
+      matchCount: 1,
+      autoRefresh: { attempted: false, status: 'not_needed', pulled: 0, processed: 0 },
+      createdAt: '2023-10-17T12:00:00.000Z',
+      updatedAt: '2023-10-17T12:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .post('/companies/default/verifications/pago-movil/operator-lookup')
+      .send(validPagoMovilPayload);
+
+    expect(response.status).toBe(200);
+    expect(operatorLookupPagoMovilVerification).toHaveBeenCalledWith('default', {
+      ...validPagoMovilPayload,
+      montoEsperado: 1,
+    });
+    expect(response.body).toMatchObject({
+      verificationMethod: 'pago_movil',
+      authorized: true,
+      reasonCode: 'authorized',
+    });
+  });
+
+  it('routes Transferencia Directa manual through the InstaPago provider flow', async () => {
+    const { verificationsRouter } = await import('./verifications.routes');
+    const app = express();
+    app.use(express.json());
+    app.use(verificationsRouter);
+    app.use(errorHandler);
+
+    createManualTransferenciaDirectaVerification.mockResolvedValue({
+      id: 'lookup',
+      persisted: false,
+      verificationMethod: 'transferencia_directa',
+      status: 'pending',
+      authorized: false,
+      reasonCode: 'duplicate',
+      senderMatchType: 'none',
+      candidateCount: 0,
+      evidence: null,
+      paymentProviderApi: {
+        provider: 'instapago',
+        method: 'transferencia_directa',
+        checked: true,
+        configured: true,
+        providerCode: '401',
+        providerMessage: 'El pago ya ha sido validado',
+        matchedReference: null,
+        transactionCount: 0,
+        evidence: null,
+      },
+      transfer: {
+        id: 'lookup',
+        referenceExpected: '028251997974',
+        amountExpected: 1,
+        currency: 'VES',
+        expectedBank: 'Transferencia Directa InstaPago',
+        expectedWindowFrom: '2023-10-17T00:00:00.000Z',
+        expectedWindowTo: '2023-10-17T23:59:59.999Z',
+        destinationAccountLast4: '0134',
+        customerName: 'V0000000',
+        notes: null,
+        status: 'pending',
+        matchCount: 0,
+      },
+      canTreatAsConfirmed: false,
+      bestMatch: null,
+      strongestEmail: null,
+      strongestAuthStatus: null,
+      strongestAuthScore: null,
+      officialSenderMatched: 'unknown',
+      riskFlags: ['instapago_duplicate_validation'],
+      matchCount: 0,
+      autoRefresh: { attempted: false, status: 'not_needed', pulled: 0, processed: 0 },
+      createdAt: '2023-10-17T12:00:00.000Z',
+      updatedAt: '2023-10-17T12:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .post('/companies/default/verifications/transferencia-directa/manual')
+      .send(validTransferenciaPayload);
+
+    expect(response.status).toBe(201);
+    expect(createManualTransferenciaDirectaVerification).toHaveBeenCalledWith('default', validTransferenciaPayload);
+    expect(response.body).toMatchObject({
+      verificationMethod: 'transferencia_directa',
+      reasonCode: 'duplicate',
     });
   });
 

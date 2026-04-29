@@ -14,6 +14,7 @@ import { dashboardRouter } from './modules/dashboard/dashboard.routes';
 import { gmailRouter } from './modules/gmail/gmail.routes';
 import { integrationTokensRouter } from './modules/integration-tokens/integration-tokens.routes';
 import { matchesRouter } from './modules/matches/matches.routes';
+import { paymentProvidersRouter } from './modules/payment-providers/payment-providers.routes';
 import { reviewsRouter } from './modules/reviews/reviews.routes';
 import { settingsRouter } from './modules/settings/settings.routes';
 import { systemRouter } from './modules/system/system.routes';
@@ -45,6 +46,7 @@ export function createApp() {
   app.use(channelsRouter);
   app.use(gmailRouter);
   app.use(integrationTokensRouter);
+  app.use(paymentProvidersRouter);
   app.use(transfersRouter);
   app.use(verificationsRouter);
   app.use(matchesRouter);

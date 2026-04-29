@@ -2,6 +2,7 @@ import type {
   AllowedBankSender,
   AuditLog,
   CompanyProfile,
+  CompanyPaymentProviderConfig,
   ExpectedTransfer,
   GmailAccount,
   GmailToken,
@@ -9,6 +10,7 @@ import type {
   IntegrationApiToken,
   InboundEmail,
   ManualReview,
+  PaymentProviderVerificationAttempt,
   ParsedBankNotification,
   Prisma,
   TransferMatch,
@@ -49,6 +51,7 @@ export function serializeCompanyProfile(
   company: CompanyProfile & {
     gmailAccounts?: Array<GmailAccount & { token?: GmailToken | null; watches?: GmailWatch[] }>;
     whatsAppChannel?: WhatsAppChannel | null;
+    paymentProviderConfigs?: CompanyPaymentProviderConfig[];
   },
 ) {
   const gmailAccounts = (company.gmailAccounts ?? []).map(serializeGmailAccount);
@@ -65,6 +68,57 @@ export function serializeCompanyProfile(
     gmailAccounts,
     gmailAccount: gmailAccounts[0] ?? null,
     whatsAppChannel: company.whatsAppChannel ? serializeWhatsAppChannel(company.whatsAppChannel) : null,
+    paymentProviderConfigs: (company.paymentProviderConfigs ?? []).map(serializePaymentProviderConfig),
+  };
+}
+
+export function serializePaymentProviderConfig(
+  config: CompanyPaymentProviderConfig & {
+    company?: CompanyProfile | null;
+  },
+) {
+  return {
+    ...serializeCompanyScope(config),
+    id: config.id,
+    provider: enumToClientValue(config.provider),
+    isActive: config.isActive,
+    apiBaseUrl: config.apiBaseUrl,
+    defaultReceiptBank: config.defaultReceiptBank,
+    defaultOriginBank: config.defaultOriginBank,
+    hasKeyId: Boolean(config.keyIdEncrypted),
+    hasPublicKeyId: Boolean(config.publicKeyIdEncrypted),
+    metadata: config.metadata,
+    createdAt: config.createdAt,
+    updatedAt: config.updatedAt,
+  };
+}
+
+export function serializePaymentProviderAttempt(
+  attempt: PaymentProviderVerificationAttempt & {
+    company?: CompanyProfile | null;
+  },
+) {
+  return {
+    ...serializeCompanyScope(attempt),
+    id: attempt.id,
+    provider: enumToClientValue(attempt.provider),
+    method: enumToClientValue(attempt.method),
+    externalRequestId: attempt.externalRequestId,
+    referenceExpected: attempt.referenceExpected,
+    amountExpected: decimalToNumber(attempt.amountExpected),
+    currency: attempt.currency,
+    operationDate: attempt.operationDate,
+    requestPayload: attempt.requestPayload,
+    providerRequest: attempt.providerRequest,
+    providerResponse: attempt.providerResponse,
+    authorized: attempt.authorized,
+    reasonCode: attempt.reasonCode,
+    providerCode: attempt.providerCode,
+    providerMessage: attempt.providerMessage,
+    matchedReference: attempt.matchedReference,
+    evidence: attempt.evidence,
+    createdAt: attempt.createdAt,
+    updatedAt: attempt.updatedAt,
   };
 }
 

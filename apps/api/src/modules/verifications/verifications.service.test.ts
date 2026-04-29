@@ -5,6 +5,7 @@ import type { CreateManualVerificationInput } from '@ledgerlink/shared';
 const loadVerificationCandidateEmails = vi.fn();
 const evaluateExactAuthorization = vi.fn();
 const evaluateBinancePayAuthorization = vi.fn();
+const evaluateInstapagoAuthorization = vi.fn();
 const pullGmailPubSubMessages = vi.fn();
 const getCompanyBySlugOrThrow = vi.fn();
 
@@ -29,6 +30,12 @@ vi.mock('./exact-authorization', async () => {
 
 vi.mock('./binance-pay-authorization', () => ({
   evaluateBinancePayAuthorization,
+}));
+
+vi.mock('./instapago-authorization', () => ({
+  evaluateInstapagoAuthorization,
+  paymentProviderBankLabel: (method: string) =>
+    method === 'pago_movil' ? 'Pago Movil InstaPago' : 'Transferencia Directa InstaPago',
 }));
 
 function buildInput(overrides: Partial<CreateManualVerificationInput> = {}): CreateManualVerificationInput {
@@ -305,5 +312,63 @@ describe('verification service auto-refresh', () => {
     expect(result.verificationMethod).toBe('binance');
     expect(result.authorized).toBe(true);
     expect(result.binanceApi.matchedTransactionId).toBe('428221485342556160');
+  });
+
+  it('authorizes Pago Movil through the InstaPago provider evaluator without Gmail', async () => {
+    const { authorizePagoMovilVerification } = await import('./verifications.service');
+
+    evaluateInstapagoAuthorization.mockResolvedValue({
+      authorized: true,
+      reasonCode: 'authorized',
+      candidateCount: 1,
+      senderMatchType: 'none',
+      evidence: null,
+      paymentProviderApi: {
+        provider: 'instapago',
+        method: 'pago_movil',
+        checked: true,
+        configured: true,
+        providerCode: '201',
+        providerMessage: 'Se ha encontrado un pago, exitosamente',
+        matchedReference: '028251997974',
+        transactionCount: 1,
+        evidence: null,
+      },
+      strongestEmail: null,
+      strongestAuthStatus: 'high',
+      strongestAuthScore: 100,
+      officialSenderMatched: true,
+      riskFlags: [],
+    });
+
+    const payload = {
+      referenciaEsperada: '028251997974',
+      montoEsperado: 1,
+      moneda: 'VES' as const,
+      fechaPago: '2023-10-17',
+      fechaOperacion: null,
+      bancoOrigen: '0134',
+      bancoDestino: '0134',
+      cedulaCliente: 'V0000000',
+      telefonoCliente: '+584240000000',
+      nombreClienteOpcional: null,
+      notas: null,
+      externalRequestId: null,
+    };
+
+    const result = await authorizePagoMovilVerification('default', payload);
+
+    expect(evaluateInstapagoAuthorization).toHaveBeenCalledWith({
+      companyId: 'company-default',
+      method: 'pago_movil',
+      payload,
+      mode: 'authorize',
+    });
+    expect(loadVerificationCandidateEmails).not.toHaveBeenCalled();
+    expect(evaluateExactAuthorization).not.toHaveBeenCalled();
+    expect(pullGmailPubSubMessages).not.toHaveBeenCalled();
+    expect(result.verificationMethod).toBe('pago_movil');
+    expect(result.authorized).toBe(true);
+    expect(result.paymentProviderApi.matchedReference).toBe('028251997974');
   });
 });
