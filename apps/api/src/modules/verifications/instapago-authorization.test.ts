@@ -169,7 +169,7 @@ describe('InstaPago authorization', () => {
 
     expect(result.authorized).toBe(true);
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://merchant.instapago.com/services/api/v2/Transfers/p2c',
+      'https://merchant.instapago.com/services/api/v2/Transfers/p2c/Validate',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -180,6 +180,65 @@ describe('InstaPago authorization', () => {
     );
     const [, transferRequest] = fetchMock.mock.calls[0] ?? [];
     expect(String((transferRequest as RequestInit).body)).toContain('clientId=V12345678');
+  });
+
+  it('uses the non-destructive Pago Movil GetPayment endpoint for lookup', async () => {
+    const { evaluateInstapagoAuthorization } = await import('./instapago-authorization');
+    mockJsonResponse({
+      success: true,
+      code: '201',
+      message: 'Se ha encontrado un pago, exitosamente',
+      reference: '028251997974',
+      referencedest: '028251997974',
+      bank: '0134',
+      receiptbank: '0134',
+      phonenumberclient: '00584240000000',
+      rif: 'V0000000',
+      amount: '1.00',
+      date: '2023-10-17',
+    });
+
+    const result = await evaluateInstapagoAuthorization({
+      companyId: 'company-default',
+      method: 'pago_movil',
+      payload: buildPagoMovilPayload(),
+      mode: 'lookup',
+    });
+
+    expect(result.authorized).toBe(true);
+    expect(result.reasonCode).toBe('authorized');
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/v2/Payments/p2p/GetPayment?'),
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('uses the destructive Pago Movil ValidatePayment endpoint only for authorize', async () => {
+    const { evaluateInstapagoAuthorization } = await import('./instapago-authorization');
+    mockJsonResponse({
+      success: true,
+      code: '201',
+      message: 'Se ha validado un pago, exitosamente',
+      reference: '028251997974',
+      bank: '0134',
+      receiptbank: '0134',
+      phonenumberclient: '00584240000000',
+      rif: 'V0000000',
+      amount: '1.00',
+      date: '2023-10-17',
+    });
+
+    await evaluateInstapagoAuthorization({
+      companyId: 'company-default',
+      method: 'pago_movil',
+      payload: buildPagoMovilPayload(),
+      mode: 'authorize',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/v2/Payments/p2p/ValidatePayment?'),
+      expect.objectContaining({ method: 'GET' }),
+    );
   });
 
   it('blocks duplicate provider responses', async () => {
@@ -202,19 +261,44 @@ describe('InstaPago authorization', () => {
     expect(result.riskFlags).toContain('instapago_duplicate_validation');
   });
 
-  it('keeps lookup local and does not call the provider when no previous attempt exists', async () => {
+  it('uses the non-destructive Transferencia Directa p2c endpoint for lookup', async () => {
     const { evaluateInstapagoAuthorization } = await import('./instapago-authorization');
+    mockJsonResponse({
+      success: true,
+      code: '201',
+      message: 'Se ha encontrado una transferencia, exitosamente',
+      reference: 'TRF123456',
+      bank: '0102',
+      receiptbank: '0134',
+      rif: 'V12345678',
+      amount: '25.50',
+      date: '2023-10-17',
+    });
 
     const result = await evaluateInstapagoAuthorization({
       companyId: 'company-default',
-      method: 'pago_movil',
-      payload: buildPagoMovilPayload(),
+      method: 'transferencia_directa',
+      payload: {
+        referenciaEsperada: 'TRF123456',
+        montoEsperado: 25.5,
+        moneda: 'VES',
+        fechaPago: '2023-10-17',
+        fechaOperacion: null,
+        bancoOrigen: '0102',
+        bancoDestino: '0134',
+        cedulaCliente: 'V12345678',
+        telefonoCliente: null,
+        nombreClienteOpcional: null,
+        notas: null,
+        externalRequestId: null,
+      },
       mode: 'lookup',
     });
 
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(result.authorized).toBe(false);
-    expect(result.paymentProviderApi.checked).toBe(false);
-    expect(result.riskFlags).toContain('payment_provider_lookup_local_only');
+    expect(result.authorized).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://merchant.instapago.com/services/api/v2/Transfers/p2c',
+      expect.objectContaining({ method: 'POST' }),
+    );
   });
 });

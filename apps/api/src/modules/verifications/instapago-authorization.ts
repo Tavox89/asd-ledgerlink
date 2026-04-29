@@ -40,6 +40,8 @@ export interface InstapagoAuthorizationResult {
   riskFlags: string[];
 }
 
+type InstapagoProviderCallMode = 'authorize' | 'lookup';
+
 interface DecryptedInstapagoConfig {
   id: string;
   companyId: string;
@@ -401,10 +403,14 @@ async function callInstapagoProvider(
   method: InstapagoVerificationMethod,
   config: DecryptedInstapagoConfig,
   request: NormalizedProviderRequest,
+  mode: InstapagoProviderCallMode,
 ) {
   if (method === 'pago_movil') {
     const params = buildPagoMovilProviderParams(config, request);
-    const url = new URL(buildProviderUrl(config, '/v2/Payments/p2p/ValidatePayment'));
+    const endpoint = mode === 'authorize'
+      ? '/v2/Payments/p2p/ValidatePayment'
+      : '/v2/Payments/p2p/GetPayment';
+    const url = new URL(buildProviderUrl(config, endpoint));
     Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
 
     const result = await fetchWithTimeout(url.toString(), {
@@ -425,7 +431,8 @@ async function callInstapagoProvider(
   }
 
   const params = buildTransferProviderParams(config, request);
-  const result = await fetchWithTimeout(buildProviderUrl(config, '/v2/Transfers/p2c'), {
+  const transferEndpoint = mode === 'authorize' ? '/v2/Transfers/p2c/Validate' : '/v2/Transfers/p2c';
+  const result = await fetchWithTimeout(buildProviderUrl(config, transferEndpoint), {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -438,7 +445,7 @@ async function callInstapagoProvider(
     result,
     request: {
       method: 'POST',
-      url: buildProviderUrl(config, '/v2/Transfers/p2c'),
+      url: buildProviderUrl(config, transferEndpoint),
       body: redactProviderRequest(params),
     },
   };
@@ -839,31 +846,17 @@ export async function evaluateInstapagoAuthorization(input: {
     request,
   });
 
-  if (input.mode === 'lookup') {
-    if (previousAttempt) {
-      return resultFromPreviousAttempt(input.method, previousAttempt, false);
-    }
-
-    return buildResult({
-      method: input.method,
-      authorized: false,
-      reasonCode: 'reference',
-      api: buildApiSummary({
-        method: input.method,
-        checked: false,
-        configured: true,
-        providerMessage: 'No previous InstaPago verification attempt found for this request.',
-      }),
-      riskFlags: ['payment_provider_lookup_local_only'],
-    });
-  }
-
   if (previousAttempt?.externalRequestId && request.externalRequestId) {
     return resultFromPreviousAttempt(input.method, previousAttempt, true);
   }
 
   try {
-    const { result, request: providerRequest } = await callInstapagoProvider(input.method, config, request);
+    const { result, request: providerRequest } = await callInstapagoProvider(
+      input.method,
+      config,
+      request,
+      input.mode ?? 'authorize',
+    );
     const payload = result.payload;
     const code = providerCode(payload, result.httpStatus);
     const message = providerMessage(payload, result.rawText);

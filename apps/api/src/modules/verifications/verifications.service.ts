@@ -736,14 +736,14 @@ export async function operatorLookupPagoMovilVerification(
   companySlug: string,
   input: PaymentProviderVerificationInput,
 ) {
-  return lookupProviderVerification(companySlug, input, 'pago_movil', 'authorize');
+  return lookupProviderVerification(companySlug, input, 'pago_movil', 'lookup');
 }
 
 export async function operatorLookupTransferenciaDirectaVerification(
   companySlug: string,
   input: PaymentProviderVerificationInput,
 ) {
-  return lookupProviderVerification(companySlug, input, 'transferencia_directa', 'authorize');
+  return lookupProviderVerification(companySlug, input, 'transferencia_directa', 'lookup');
 }
 
 export async function createManualPagoMovilVerification(
