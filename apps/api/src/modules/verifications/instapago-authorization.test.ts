@@ -213,6 +213,40 @@ describe('InstaPago authorization', () => {
     );
   });
 
+  it('does not treat provider commerce rif as the payer client document', async () => {
+    const { evaluateInstapagoAuthorization } = await import('./instapago-authorization');
+    mockJsonResponse({
+      success: true,
+      code: '201',
+      message: 'Se ha encontrado un pago, exitosamente',
+      id: 'ddfe3890-0111-4734-be0a-d14a2985fb7e',
+      phonenumber: '00584126385534',
+      rif: 'J000000401878105',
+      reference: '907126',
+      referencedest: '907126',
+      bank: '0134',
+      phonenumberclient: '00584121340001',
+      amount: '1.00',
+    });
+
+    const result = await evaluateInstapagoAuthorization({
+      companyId: 'company-default',
+      method: 'pago_movil',
+      payload: buildPagoMovilPayload({
+        referenciaEsperada: '907126',
+        fechaPago: '2026-04-16',
+        cedulaCliente: 'V00000000',
+        telefonoCliente: '00584121340001',
+      }),
+      mode: 'lookup',
+    });
+
+    expect(result.authorized).toBe(true);
+    expect(result.reasonCode).toBe('authorized');
+    expect(result.paymentProviderApi.evidence?.clientIdMatched).toBe('unknown');
+    expect(result.paymentProviderApi.matchedReference).toBe('907126');
+  });
+
   it('uses the destructive Pago Movil ValidatePayment endpoint only for authorize', async () => {
     const { evaluateInstapagoAuthorization } = await import('./instapago-authorization');
     mockJsonResponse({

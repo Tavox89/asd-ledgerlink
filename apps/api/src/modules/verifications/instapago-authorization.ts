@@ -513,7 +513,9 @@ function buildEvidence(
   const responseDate = readResponseDate(payload, request.paymentDate);
   const originBank = firstString(payload, ['bank', 'originBank', 'bankorigin']);
   const destinationBank = firstString(payload, ['receiptbank', 'receiptBank', 'destinationBank']);
-  const clientId = normalizeDocument(firstString(payload, ['clientid', 'clientId', 'rif', 'cedula']));
+  // InstaPago returns `rif` as the commerce identifier in Pago Movil/transfer
+  // responses, not as the payer document. Do not compare it with clientId.
+  const clientId = normalizeDocument(firstString(payload, ['clientid', 'clientId', 'cedula']));
   const phoneNumber = normalizePhoneForProvider(firstString(payload, ['phonenumberclient', 'phoneNumberClient', 'phonenumber']));
 
   return {
