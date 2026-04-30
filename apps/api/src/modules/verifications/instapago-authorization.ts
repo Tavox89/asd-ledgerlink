@@ -76,6 +76,19 @@ interface ProviderHttpResult {
   rawText: string;
 }
 
+interface SupplementalProviderListLookup {
+  request: {
+    method: 'GET';
+    url: string;
+    params: Record<string, string | null>;
+  };
+  response: {
+    httpStatus: number;
+    payload: UnknownRecord | null;
+  };
+  matchedRecord: UnknownRecord | null;
+}
+
 interface InstapagoEvidence {
   source: 'instapago_api';
   reference: string | null;
@@ -399,6 +412,18 @@ function buildTransferProviderParams(
   };
 }
 
+function buildProviderListParams(
+  config: DecryptedInstapagoConfig,
+  request: NormalizedProviderRequest,
+) {
+  return {
+    KeyId: config.keyId,
+    PublicKeyId: config.publicKeyId,
+    startdate: request.paymentDate,
+    enddate: request.paymentDate,
+  };
+}
+
 async function callInstapagoProvider(
   method: InstapagoVerificationMethod,
   config: DecryptedInstapagoConfig,
@@ -448,6 +473,158 @@ async function callInstapagoProvider(
       url: buildProviderUrl(config, transferEndpoint),
       body: redactProviderRequest(params),
     },
+  };
+}
+
+function parseProviderPaymentList(payload: UnknownRecord | null): UnknownRecord[] {
+  if (!payload) {
+    return [];
+  }
+
+  const rawPayments = payload.payments;
+  if (Array.isArray(rawPayments)) {
+    return rawPayments.filter((entry): entry is UnknownRecord => Boolean(entry && typeof entry === 'object' && !Array.isArray(entry)));
+  }
+
+  if (typeof rawPayments !== 'string' || !rawPayments.trim()) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(rawPayments) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is UnknownRecord => Boolean(entry && typeof entry === 'object' && !Array.isArray(entry)))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeProviderListRecord(method: InstapagoVerificationMethod, record: UnknownRecord): UnknownRecord {
+  if (method === 'transferencia_directa') {
+    return {
+      reference: firstString(record, ['reference', 'referencedest', 'referenceDest']),
+      referencedest: firstString(record, ['referencedest', 'referenceDest', 'reference']),
+      bank: firstString(record, ['bankemi', 'bank', 'originBank']),
+      receiptbank: firstString(record, ['bankrecep', 'receiptbank', 'receiptBank', 'destinationBank']),
+      clientid: firstString(record, ['clientId', 'clientid', 'cedula']),
+      amount: firstString(record, ['amount', 'monto']) ?? record.amount,
+      date: firstString(record, ['date', 'paymentDate', 'operationDate']),
+      destinationAccount: firstString(record, ['destinationAccount']),
+    };
+  }
+
+  return {
+    reference: firstString(record, ['reference', 'referencedest', 'referenceDest']),
+    referencedest: firstString(record, ['referencedest', 'referenceDest', 'reference']),
+    bank: firstString(record, ['bank', 'bankemi', 'originBank']),
+    receiptbank: firstString(record, ['receiptbank', 'receiptBank', 'bankrecep', 'destinationBank']),
+    phonenumberclient: firstString(record, ['phonenumberclient', 'phoneNumberClient']),
+    phonenumber: firstString(record, ['phonenumber', 'phoneNumber']),
+    amount: firstString(record, ['amount', 'monto']) ?? record.amount,
+    date: firstString(record, ['date', 'paymentDate', 'operationDate']),
+  };
+}
+
+function providerRecordDateMatches(record: UnknownRecord, request: NormalizedProviderRequest) {
+  const rawDate = firstString(record, ['date', 'paymentDate', 'operationDate']);
+  if (!rawDate) {
+    return false;
+  }
+
+  const parsed = dayjs(rawDate);
+  return parsed.isValid() && parsed.format('YYYY-MM-DD') === request.paymentDate;
+}
+
+function providerListRecordMatches(method: InstapagoVerificationMethod, record: UnknownRecord, request: NormalizedProviderRequest) {
+  const normalizedRecord = normalizeProviderListRecord(method, record);
+  const reference = firstString(normalizedRecord, ['reference']);
+  const destinationReference = firstString(normalizedRecord, ['referencedest']);
+  const amount = toNumberValue(firstString(normalizedRecord, ['amount']) ?? normalizedRecord.amount);
+  const originBank = firstString(normalizedRecord, ['bank']);
+  const destinationBank = firstString(normalizedRecord, ['receiptbank']);
+  const phoneNumber = normalizePhoneForProvider(firstString(normalizedRecord, ['phonenumberclient']));
+
+  return (
+    (valuesMatch(reference, request.reference) || valuesMatch(destinationReference, request.reference)) &&
+    amountEquals(amount, request.amount) &&
+    providerRecordDateMatches(normalizedRecord, request) &&
+    optionalProviderMatch(originBank, request.originBank) !== false &&
+    optionalProviderMatch(destinationBank, request.destinationBank) !== false &&
+    (method !== 'pago_movil' || optionalProviderMatch(phoneNumber, request.phoneNumber) !== false)
+  );
+}
+
+function shouldFetchSupplementalList(
+  method: InstapagoVerificationMethod,
+  payload: UnknownRecord | null,
+) {
+  if (!responseSuccess(payload)) {
+    return false;
+  }
+
+  if (method === 'transferencia_directa') {
+    return !firstString(payload, ['clientid', 'clientId', 'cedula'])
+      || !firstString(payload, ['receiptbank', 'receiptBank', 'destinationBank', 'bankrecep']);
+  }
+
+  return !firstString(payload, ['date', 'paymentDate', 'operationDate'])
+    || !firstString(payload, ['receiptbank', 'receiptBank', 'destinationBank', 'bankrecep'])
+    || !firstString(payload, ['phonenumberclient', 'phoneNumberClient']);
+}
+
+async function fetchSupplementalProviderList(
+  method: InstapagoVerificationMethod,
+  config: DecryptedInstapagoConfig,
+  request: NormalizedProviderRequest,
+): Promise<SupplementalProviderListLookup> {
+  const params = buildProviderListParams(config, request);
+  const endpoint = method === 'transferencia_directa'
+    ? '/v2/Transfers/p2c/List'
+    : '/v2/Payments/p2p/GetPaymentList';
+  const url = new URL(buildProviderUrl(config, endpoint));
+  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+
+  const result = await fetchWithTimeout(url.toString(), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+  const matchedRecord = parseProviderPaymentList(result.payload)
+    .map((record) => normalizeProviderListRecord(method, record))
+    .find((record) => providerListRecordMatches(method, record, request)) ?? null;
+
+  return {
+    request: {
+      method: 'GET',
+      url: `${url.origin}${url.pathname}`,
+      params: redactProviderRequest(params),
+    },
+    response: {
+      httpStatus: result.httpStatus,
+      payload: result.payload,
+    },
+    matchedRecord,
+  };
+}
+
+function mergeProviderEvidencePayload(
+  payload: UnknownRecord | null,
+  supplementalRecord: UnknownRecord | null,
+): UnknownRecord | null {
+  if (!payload) {
+    return supplementalRecord;
+  }
+  if (!supplementalRecord) {
+    return payload;
+  }
+
+  return {
+    ...supplementalRecord,
+    ...Object.fromEntries(
+      Object.entries(payload).filter(([, value]) => value !== null && value !== undefined && toStringValue(value) !== ''),
+    ),
   };
 }
 
@@ -860,10 +1037,19 @@ export async function evaluateInstapagoAuthorization(input: {
       input.mode ?? 'authorize',
     );
     const payload = result.payload;
+    let supplementalList: SupplementalProviderListLookup | null = null;
+    if (shouldFetchSupplementalList(input.method, payload)) {
+      try {
+        supplementalList = await fetchSupplementalProviderList(input.method, config, request);
+      } catch (error) {
+        logger.warn({ err: error, method: input.method }, 'InstaPago supplemental list request failed');
+      }
+    }
+    const evidencePayload = mergeProviderEvidencePayload(payload, supplementalList?.matchedRecord ?? null);
     const code = providerCode(payload, result.httpStatus);
     const message = providerMessage(payload, result.rawText);
     const duplicate = isDuplicateProviderResponse(payload);
-    const evidence = payload ? buildEvidence(payload, request) : null;
+    const evidence = evidencePayload ? buildEvidence(evidencePayload, request) : null;
     const authorized = evidence ? isEvidenceAuthorized(payload, evidence, input.method) : false;
     const reasonCode: VerificationReasonCode = duplicate
       ? 'duplicate'
@@ -878,6 +1064,16 @@ export async function evaluateInstapagoAuthorization(input: {
       ? {
           httpStatus: result.httpStatus,
           payload: redactProviderResponse(payload),
+          supplementalList: supplementalList
+            ? {
+                request: supplementalList.request,
+                response: {
+                  httpStatus: supplementalList.response.httpStatus,
+                  payload: redactProviderResponse(supplementalList.response.payload),
+                },
+                matchedRecord: redactProviderResponse(supplementalList.matchedRecord),
+              }
+            : undefined,
         }
       : {
           httpStatus: result.httpStatus,

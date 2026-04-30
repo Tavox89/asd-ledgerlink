@@ -142,7 +142,7 @@ describe('InstaPago authorization', () => {
       referencedest: 'TRF123456',
       bank: '0102',
       receiptbank: '0134',
-      rif: 'V12345678',
+      clientid: 'V12345678',
       amount: '25.50',
       date: '2023-10-17',
     });
@@ -304,7 +304,7 @@ describe('InstaPago authorization', () => {
       reference: 'TRF123456',
       bank: '0102',
       receiptbank: '0134',
-      rif: 'V12345678',
+      clientid: 'V12345678',
       amount: '25.50',
       date: '2023-10-17',
     });
@@ -334,5 +334,127 @@ describe('InstaPago authorization', () => {
       'https://merchant.instapago.com/services/api/v2/Transfers/p2c',
       expect.objectContaining({ method: 'POST' }),
     );
+  });
+
+  it('enriches Transferencia Directa evidence from the received-transfer list', async () => {
+    const { evaluateInstapagoAuthorization } = await import('./instapago-authorization');
+    fetchMock
+      .mockResolvedValueOnce({
+        status: 200,
+        text: vi.fn().mockResolvedValue(JSON.stringify({
+          success: true,
+          code: '201',
+          message: 'Se ha encontrado un pago, exitosamente',
+          reference: '01214991',
+          referencedest: '01214991',
+          bank: '0134',
+          amount: '10.00',
+          date: '2023-10-30',
+        })),
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        text: vi.fn().mockResolvedValue(JSON.stringify({
+          success: true,
+          code: '201',
+          payments: JSON.stringify([
+            {
+              date: '2023-10-30T00:00:00',
+              reference: '01214991',
+              bankemi: '0134',
+              bankrecep: '0114',
+              clientId: 'V20839247',
+              amount: 10,
+            },
+          ]),
+        })),
+      });
+
+    const result = await evaluateInstapagoAuthorization({
+      companyId: 'company-default',
+      method: 'transferencia_directa',
+      payload: {
+        referenciaEsperada: '01214991',
+        montoEsperado: 10,
+        moneda: 'VES',
+        fechaPago: '2023-10-30',
+        fechaOperacion: null,
+        bancoOrigen: '0134',
+        bancoDestino: '0114',
+        cedulaCliente: 'V20839247',
+        telefonoCliente: null,
+        nombreClienteOpcional: null,
+        notas: null,
+        externalRequestId: null,
+      },
+      mode: 'lookup',
+    });
+
+    expect(result.authorized).toBe(true);
+    expect(result.paymentProviderApi.evidence?.clientIdMatched).toBe(true);
+    expect(result.paymentProviderApi.evidence?.destinationBankMatched).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/v2/Transfers/p2c/List?'),
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('blocks Transferencia Directa when supplemental list confirms a different client document', async () => {
+    const { evaluateInstapagoAuthorization } = await import('./instapago-authorization');
+    fetchMock
+      .mockResolvedValueOnce({
+        status: 200,
+        text: vi.fn().mockResolvedValue(JSON.stringify({
+          success: true,
+          code: '201',
+          message: 'Se ha encontrado un pago, exitosamente',
+          reference: '01214991',
+          referencedest: '01214991',
+          bank: '0134',
+          amount: '10.00',
+          date: '2023-10-30',
+        })),
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        text: vi.fn().mockResolvedValue(JSON.stringify({
+          success: true,
+          code: '201',
+          payments: JSON.stringify([
+            {
+              date: '2023-10-30T00:00:00',
+              reference: '01214991',
+              bankemi: '0134',
+              bankrecep: '0114',
+              clientId: 'V20839247',
+              amount: 10,
+            },
+          ]),
+        })),
+      });
+
+    const result = await evaluateInstapagoAuthorization({
+      companyId: 'company-default',
+      method: 'transferencia_directa',
+      payload: {
+        referenciaEsperada: '01214991',
+        montoEsperado: 10,
+        moneda: 'VES',
+        fechaPago: '2023-10-30',
+        fechaOperacion: null,
+        bancoOrigen: '0134',
+        bancoDestino: '0114',
+        cedulaCliente: 'V10000000',
+        telefonoCliente: null,
+        nombreClienteOpcional: null,
+        notas: null,
+        externalRequestId: null,
+      },
+      mode: 'lookup',
+    });
+
+    expect(result.authorized).toBe(false);
+    expect(result.reasonCode).toBe('name');
+    expect(result.paymentProviderApi.evidence?.clientIdMatched).toBe(false);
   });
 });
