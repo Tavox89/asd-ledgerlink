@@ -397,6 +397,9 @@ describe('InstaPago authorization', () => {
       expect.stringContaining('/v2/Transfers/p2c/List?'),
       expect.objectContaining({ method: 'GET' }),
     );
+    const [listUrl] = fetchMock.mock.calls[1] ?? [];
+    expect(String(listUrl)).toContain('startdate=2023-10-30');
+    expect(String(listUrl)).toContain('enddate=2023-10-31');
   });
 
   it('blocks Transferencia Directa when supplemental list confirms a different client document', async () => {

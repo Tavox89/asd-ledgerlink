@@ -413,6 +413,7 @@ function buildTransferProviderParams(
 }
 
 function buildProviderListParams(
+  method: InstapagoVerificationMethod,
   config: DecryptedInstapagoConfig,
   request: NormalizedProviderRequest,
 ) {
@@ -420,7 +421,11 @@ function buildProviderListParams(
     KeyId: config.keyId,
     PublicKeyId: config.publicKeyId,
     startdate: request.paymentDate,
-    enddate: request.paymentDate,
+    // Transfer list behaves as an exclusive date range in sandbox; using the
+    // next day keeps a date-only lookup scoped to the requested payment day.
+    enddate: method === 'transferencia_directa'
+      ? dayjs(request.paymentDate).add(1, 'day').format('YYYY-MM-DD')
+      : request.paymentDate,
   };
 }
 
@@ -578,7 +583,7 @@ async function fetchSupplementalProviderList(
   config: DecryptedInstapagoConfig,
   request: NormalizedProviderRequest,
 ): Promise<SupplementalProviderListLookup> {
-  const params = buildProviderListParams(config, request);
+  const params = buildProviderListParams(method, config, request);
   const endpoint = method === 'transferencia_directa'
     ? '/v2/Transfers/p2c/List'
     : '/v2/Payments/p2p/GetPaymentList';
