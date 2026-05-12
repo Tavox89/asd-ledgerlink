@@ -64,11 +64,14 @@ export interface PaymentProviderConfigRecord {
   id: string;
   provider: string;
   isActive: boolean;
+  transportMode: 'proxy' | 'direct';
   apiBaseUrl: string;
+  proxyBaseUrl?: string | null;
   defaultReceiptBank: string;
   defaultOriginBank?: string | null;
   hasKeyId: boolean;
   hasPublicKeyId: boolean;
+  hasProxyToken: boolean;
   metadata?: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
@@ -264,6 +267,40 @@ export interface AuditLogRecord {
   metadata?: Record<string, unknown> | null;
 }
 
+export interface PaymentConsumptionRecord {
+  id: string;
+  companyId: string;
+  method: 'zelle' | 'binance' | 'pago_movil' | 'transferencia_directa';
+  paymentFingerprint: string;
+  status: 'active' | 'released';
+  reference?: string | null;
+  amount?: number | null;
+  currency?: string | null;
+  operationDate?: string | null;
+  channel: 'whatsapp' | 'openpos' | 'api' | 'operator' | 'system';
+  externalRequestId?: string | null;
+  orderNumber?: string | null;
+  cashierId?: string | null;
+  cashierName?: string | null;
+  terminalId?: string | null;
+  store?: string | null;
+  validatorPhone?: string | null;
+  validationRecordId?: string | null;
+  duplicateCount: number;
+  releasedAt?: string | null;
+  releaseReason?: string | null;
+  releasedBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaginatedPaymentConsumptions {
+  page: number;
+  pageSize: number;
+  total: number;
+  items: PaymentConsumptionRecord[];
+}
+
 export interface AllowedBankSenderRecord {
   companyId?: string | null;
   companySlug?: string | null;
@@ -337,6 +374,7 @@ export interface VerificationRecord {
   paymentProviderApi?: {
     provider: 'instapago';
     method: 'pago_movil' | 'transferencia_directa';
+    transportMode?: 'proxy' | 'direct' | null;
     checked: boolean;
     configured: boolean;
     providerCode?: string | null;
@@ -363,6 +401,24 @@ export interface VerificationRecord {
       clientIdMatched: boolean | 'unknown';
       phoneMatched: boolean | 'unknown';
     } | null;
+  };
+  consumption?: {
+    status: 'not_consumed' | 'consumed' | 'idempotent' | 'duplicate';
+    paymentId?: string;
+    idempotent?: boolean;
+    orderNumber?: string | null;
+    cashierId?: string | null;
+    cashierName?: string | null;
+    channel?: string | null;
+    consumedAt?: string | null;
+    previous?: {
+      paymentId: string;
+      orderNumber?: string | null;
+      cashierId?: string | null;
+      cashierName?: string | null;
+      channel?: string | null;
+      consumedAt?: string | null;
+    };
   };
   canTreatAsConfirmed: boolean;
   bestMatch?: MatchRecord | null;

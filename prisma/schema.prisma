@@ -98,6 +98,38 @@ enum PaymentProviderMethod {
   TRANSFERENCIA_DIRECTA
 }
 
+enum InstapagoTransportMode {
+  PROXY
+  DIRECT
+}
+
+enum PaymentValidationMethod {
+  ZELLE
+  BINANCE
+  PAGO_MOVIL
+  TRANSFERENCIA_DIRECTA
+}
+
+enum PaymentValidationChannel {
+  WHATSAPP
+  OPENPOS
+  API
+  OPERATOR
+  SYSTEM
+}
+
+enum PaymentValidationRecordStatus {
+  AUTHORIZED
+  BLOCKED
+  DUPLICATE
+  ERROR
+}
+
+enum PaymentConsumptionStatus {
+  ACTIVE
+  RELEASED
+}
+
 model CompanyProfile {
   id                       String                       @id @default(cuid())
   slug                     String                       @unique
@@ -118,6 +150,8 @@ model CompanyProfile {
   integrationApiTokens     IntegrationApiToken[]
   paymentProviderConfigs   CompanyPaymentProviderConfig[]
   paymentProviderVerificationAttempts PaymentProviderVerificationAttempt[]
+  paymentValidationRecords PaymentValidationRecord[]
+  paymentConsumptions      PaymentConsumption[]
   whatsAppChannel          WhatsAppChannel?
   whatsAppConversations    WhatsAppConversation[]
   whatsAppInboundMessages  WhatsAppInboundMessage[]
@@ -132,9 +166,12 @@ model CompanyPaymentProviderConfig {
   companyId            String
   provider             PaymentProvider
   isActive             Boolean         @default(true)
+  transportMode        InstapagoTransportMode @default(PROXY)
   apiBaseUrl           String
-  keyIdEncrypted       String
-  publicKeyIdEncrypted String
+  keyIdEncrypted       String?
+  publicKeyIdEncrypted String?
+  proxyBaseUrl         String?
+  proxyTokenEncrypted  String?
   defaultReceiptBank   String
   defaultOriginBank    String?
   metadata             Json?
@@ -174,6 +211,76 @@ model PaymentProviderVerificationAttempt {
   @@unique([companyId, provider, method, externalRequestId])
   @@index([companyId, provider, method, createdAt(sort: Desc)], map: "payment_provider_attempt_company_method_created_idx")
   @@index([companyId, provider, method, referenceExpected], map: "payment_provider_attempt_company_method_ref_idx")
+}
+
+model PaymentValidationRecord {
+  id                       String                        @id @default(cuid())
+  companyId                String
+  method                   PaymentValidationMethod
+  channel                  PaymentValidationChannel
+  status                   PaymentValidationRecordStatus
+  paymentFingerprint       String?
+  externalRequestId        String?
+  orderNumber              String?
+  cashierId                String?
+  cashierName              String?
+  terminalId               String?
+  store                    String?
+  validatorPhone           String?
+  reference                String?
+  amount                   Decimal?                      @db.Decimal(18, 2)
+  currency                 Currency?
+  operationDate            DateTime?
+  authorized               Boolean                       @default(false)
+  reasonCode               String
+  requestPayload           Json?
+  responsePayload          Json?
+  evidence                 Json?
+  consumptionId            String?
+  duplicateOfConsumptionId String?
+  createdAt                DateTime                      @default(now())
+  updatedAt                DateTime                      @updatedAt
+
+  company                  CompanyProfile                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, method, createdAt(sort: Desc)], map: "payment_validation_record_company_method_created_idx")
+  @@index([companyId, channel, createdAt(sort: Desc)], map: "payment_validation_record_company_channel_created_idx")
+  @@index([companyId, paymentFingerprint], map: "payment_validation_record_company_fingerprint_idx")
+  @@index([companyId, externalRequestId], map: "payment_validation_record_company_external_idx")
+}
+
+model PaymentConsumption {
+  id                 String                   @id @default(cuid())
+  companyId          String
+  method             PaymentValidationMethod
+  paymentFingerprint String
+  status             PaymentConsumptionStatus @default(ACTIVE)
+  reference          String?
+  amount             Decimal?                 @db.Decimal(18, 2)
+  currency           Currency?
+  operationDate      DateTime?
+  channel            PaymentValidationChannel
+  externalRequestId  String?
+  orderNumber        String?
+  cashierId          String?
+  cashierName        String?
+  terminalId         String?
+  store              String?
+  validatorPhone     String?
+  validationRecordId String?
+  releasedAt         DateTime?
+  releaseReason      String?
+  releasedBy         String?
+  metadata           Json?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  company            CompanyProfile           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, method, createdAt(sort: Desc)], map: "payment_consumption_company_method_created_idx")
+  @@index([companyId, method, paymentFingerprint], map: "payment_consumption_company_method_fingerprint_idx")
+  @@index([companyId, status, createdAt(sort: Desc)], map: "payment_consumption_company_status_created_idx")
+  @@index([companyId, orderNumber], map: "payment_consumption_company_order_idx")
 }
 
 model IntegrationApiToken {

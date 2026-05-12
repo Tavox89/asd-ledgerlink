@@ -14,6 +14,7 @@ import { dashboardRouter } from './modules/dashboard/dashboard.routes';
 import { gmailRouter } from './modules/gmail/gmail.routes';
 import { integrationTokensRouter } from './modules/integration-tokens/integration-tokens.routes';
 import { matchesRouter } from './modules/matches/matches.routes';
+import { paymentConsumptionsRouter } from './modules/payment-consumptions/payment-consumptions.routes';
 import { paymentProvidersRouter } from './modules/payment-providers/payment-providers.routes';
 import { reviewsRouter } from './modules/reviews/reviews.routes';
 import { settingsRouter } from './modules/settings/settings.routes';
@@ -30,8 +31,8 @@ export function createApp() {
       credentials: true,
     }),
   );
-  app.use(express.json({ limit: '2mb' }));
-  app.use(express.urlencoded({ extended: true }));
+  app.use(express.json({ limit: '8mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '8mb' }));
   app.use(requestIdMiddleware);
   app.use(
     pinoHttp({
@@ -47,6 +48,7 @@ export function createApp() {
   app.use(gmailRouter);
   app.use(integrationTokensRouter);
   app.use(paymentProvidersRouter);
+  app.use(paymentConsumptionsRouter);
   app.use(transfersRouter);
   app.use(verificationsRouter);
   app.use(matchesRouter);

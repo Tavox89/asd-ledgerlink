@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   companySlugParamSchema,
+  captureExtractionSchema,
   createManualVerificationSchema,
   idParamSchema,
   patchActionNoteSchema,
@@ -30,8 +31,19 @@ import {
   operatorLookupTransferenciaDirectaVerification,
   rejectVerification,
 } from './verifications.service';
+import { extractCaptureVerification } from './capture-extraction';
 
 export const verificationsRouter = Router();
+
+function withOperatorContext<T extends { validationContext?: Record<string, unknown> | null }>(body: T): T {
+  return {
+    ...body,
+    validationContext: {
+      ...(body.validationContext ?? {}),
+      source: 'operator',
+    },
+  };
+}
 
 verificationsRouter.get(
   '/verifications',
@@ -45,6 +57,15 @@ verificationsRouter.get(
   validateRequest({ params: companySlugParamSchema }),
   asyncHandler(async (req, res) => {
     res.json(await listVerifications(req.params.companySlug));
+  }),
+);
+
+verificationsRouter.post(
+  '/companies/:companySlug/verifications/capture/extract',
+  validateRequest({ params: companySlugParamSchema, body: captureExtractionSchema }),
+  requireCompanyIntegrationScope('verifications:lookup'),
+  asyncHandler(async (req, res) => {
+    res.json(await extractCaptureVerification(req.params.companySlug, req.body));
   }),
 );
 
@@ -69,7 +90,7 @@ verificationsRouter.post(
   '/companies/:companySlug/verifications/binance/operator-lookup',
   validateRequest({ params: companySlugParamSchema, body: createManualVerificationSchema }),
   asyncHandler(async (req, res) => {
-    res.json(await lookupBinanceVerification(req.params.companySlug, req.body));
+    res.json(await lookupBinanceVerification(req.params.companySlug, withOperatorContext(req.body)));
   }),
 );
 
@@ -86,7 +107,7 @@ verificationsRouter.post(
   '/companies/:companySlug/verifications/pago-movil/operator-lookup',
   validateRequest({ params: companySlugParamSchema, body: paymentProviderVerificationSchema }),
   asyncHandler(async (req, res) => {
-    res.json(await operatorLookupPagoMovilVerification(req.params.companySlug, req.body));
+    res.json(await operatorLookupPagoMovilVerification(req.params.companySlug, withOperatorContext(req.body)));
   }),
 );
 
@@ -103,7 +124,7 @@ verificationsRouter.post(
   '/companies/:companySlug/verifications/transferencia-directa/operator-lookup',
   validateRequest({ params: companySlugParamSchema, body: paymentProviderVerificationSchema }),
   asyncHandler(async (req, res) => {
-    res.json(await operatorLookupTransferenciaDirectaVerification(req.params.companySlug, req.body));
+    res.json(await operatorLookupTransferenciaDirectaVerification(req.params.companySlug, withOperatorContext(req.body)));
   }),
 );
 
@@ -128,7 +149,7 @@ verificationsRouter.post(
   '/companies/:companySlug/verifications/operator-lookup',
   validateRequest({ params: companySlugParamSchema, body: createManualVerificationSchema }),
   asyncHandler(async (req, res) => {
-    res.json(await lookupVerification(req.params.companySlug, req.body));
+    res.json(await lookupVerification(req.params.companySlug, withOperatorContext(req.body)));
   }),
 );
 

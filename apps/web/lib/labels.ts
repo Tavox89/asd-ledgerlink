@@ -9,6 +9,7 @@ const LABELS: Record<string, string> = {
   rejected: 'rechazado',
   confirmed_manual: 'confirmado manualmente',
   active: 'activo',
+  released: 'liberado',
   inactive: 'inactivo',
   revoked: 'revocado',
   expired: 'vencido',
@@ -52,6 +53,8 @@ const LABELS: Record<string, string> = {
   integration_api_token: 'token de integración',
   payment_provider_config: 'configuración de proveedor',
   payment_provider_verification_attempt: 'intento de proveedor',
+  paymentconsumption: 'consumo de pago',
+  paymentvalidationrecord: 'registro de validación de pago',
   whatsappverificationattempt: 'intento de WhatsApp',
   transfer_created: 'transferencia creada',
   transfer_updated: 'transferencia actualizada',
@@ -74,6 +77,8 @@ const LABELS: Record<string, string> = {
   payment_provider_config_created: 'configuración de proveedor creada',
   payment_provider_config_updated: 'configuración de proveedor actualizada',
   whatsapp_attempt_processed: 'intento de WhatsApp procesado',
+  payment_consumed: 'pago consumido',
+  payment_consumption_released: 'consumo de pago liberado',
 };
 
 function normalizeKey(value: string) {

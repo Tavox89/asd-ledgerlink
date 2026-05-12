@@ -918,6 +918,33 @@ export function buildBlockedReply(
   return `${methodLabel(method)}.\nNo, pago bloqueado.\nNombre: ${input.customerName ?? 'sin nombre'}\nReferencia: ${input.reference ?? 'sin referencia'}\nMonto: ${formatCurrency(input.amount ?? 0, input.currency)}\nFecha usada: ${strategyLabel}\nMotivo: ${translateVerificationReason(reasonCode, method, options)}.`;
 }
 
+export function buildDuplicatePaymentReply(
+  method: Exclude<VerificationPaymentMethod, 'unknown'>,
+  previous?: {
+    orderNumber?: string | null;
+    cashierName?: string | null;
+    cashierId?: string | null;
+    channel?: string | null;
+    consumedAt?: string | Date | null;
+  } | null,
+) {
+  const details: string[] = [];
+  if (previous?.orderNumber) {
+    details.push(`Pedido: ${previous.orderNumber}`);
+  }
+  if (previous?.cashierName || previous?.cashierId) {
+    details.push(`Cajera: ${previous.cashierName ?? previous.cashierId}`);
+  }
+  if (previous?.channel) {
+    details.push(`Canal: ${previous.channel}`);
+  }
+  if (previous?.consumedAt) {
+    details.push(`Validado: ${new Date(previous.consumedAt).toLocaleString('es-VE')}`);
+  }
+
+  return `${methodLabel(method)}.\nEste pago ya fue validado anteriormente.${details.length ? `\n${details.join('\n')}` : ''}`;
+}
+
 export function buildUnauthorizedPhoneReply() {
   return 'Este piloto de validacion esta restringido a numeros aprobados.';
 }

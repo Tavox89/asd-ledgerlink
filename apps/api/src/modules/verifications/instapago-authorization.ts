@@ -4,7 +4,7 @@ import { env } from '../../config/env';
 import { dayjs } from '../../lib/dayjs';
 import { logger } from '../../lib/logger';
 import { prisma } from '../../lib/prisma';
-import { PaymentProvider, PaymentProviderMethod } from '../../lib/prisma-runtime';
+import { InstapagoTransportMode, PaymentProvider, PaymentProviderMethod } from '../../lib/prisma-runtime';
 import { serializePaymentProviderAttempt } from '../../lib/serializers';
 import { getDecryptedInstapagoConfig, INSTAPAGO_PROVIDER } from '../payment-providers/payment-providers.service';
 
@@ -15,6 +15,7 @@ export type InstapagoVerificationMethod = 'pago_movil' | 'transferencia_directa'
 export interface InstapagoProviderApiSummary {
   provider: 'instapago';
   method: InstapagoVerificationMethod;
+  transportMode: 'proxy' | 'direct' | null;
   checked: boolean;
   configured: boolean;
   providerCode: string | null;
@@ -47,9 +48,12 @@ interface DecryptedInstapagoConfig {
   companyId: string;
   provider: typeof PaymentProvider.INSTAPAGO;
   isActive: boolean;
+  transportMode: typeof InstapagoTransportMode.PROXY | typeof InstapagoTransportMode.DIRECT;
   apiBaseUrl: string;
-  keyId: string;
-  publicKeyId: string;
+  keyId: string | null;
+  publicKeyId: string | null;
+  proxyBaseUrl: string | null;
+  proxyToken: string | null;
   defaultReceiptBank: string;
   defaultOriginBank: string | null;
 }
@@ -340,6 +344,14 @@ function buildProviderUrl(config: DecryptedInstapagoConfig, path: string) {
   return `${config.apiBaseUrl.replace(/\/+$/, '')}${path}`;
 }
 
+function buildBaseUrl(baseUrl: string, path: string) {
+  return `${baseUrl.replace(/\/+$/, '')}${path}`;
+}
+
+function transportModeToClient(mode: DecryptedInstapagoConfig['transportMode']): 'proxy' | 'direct' {
+  return mode === InstapagoTransportMode.DIRECT ? 'direct' : 'proxy';
+}
+
 function parseJsonPayload(rawText: string) {
   if (!rawText.trim()) {
     return null;
@@ -384,8 +396,8 @@ function buildPagoMovilProviderParams(
   request: NormalizedProviderRequest,
 ) {
   return {
-    KeyId: config.keyId,
-    PublicKeyId: config.publicKeyId,
+    KeyId: config.keyId ?? '',
+    PublicKeyId: config.publicKeyId ?? '',
     phonenumberclient: request.phoneNumber ?? '',
     clientid: request.clientId ?? '',
     bank: request.originBank ?? '',
@@ -401,8 +413,8 @@ function buildTransferProviderParams(
   request: NormalizedProviderRequest,
 ) {
   return {
-    keyId: config.keyId,
-    PublicKeyId: config.publicKeyId,
+    keyId: config.keyId ?? '',
+    PublicKeyId: config.publicKeyId ?? '',
     date: request.paymentDate,
     reference: request.reference,
     clientId: request.clientId ?? '',
@@ -418,8 +430,8 @@ function buildProviderListParams(
   request: NormalizedProviderRequest,
 ) {
   return {
-    KeyId: config.keyId,
-    PublicKeyId: config.publicKeyId,
+    KeyId: config.keyId ?? '',
+    PublicKeyId: config.publicKeyId ?? '',
     startdate: request.paymentDate,
     // Transfer list behaves as an exclusive date range in sandbox; using the
     // next day keeps a date-only lookup scoped to the requested payment day.
@@ -429,12 +441,105 @@ function buildProviderListParams(
   };
 }
 
-async function callInstapagoProvider(
+function buildProxyRequestPayload(request: NormalizedProviderRequest) {
+  return {
+    referenceExpected: request.reference,
+    amountExpected: request.amount,
+    amount: request.amountText,
+    currency: request.currency,
+    paymentDate: request.paymentDate,
+    originBank: request.originBank,
+    destinationBank: request.destinationBank,
+    clientId: request.clientId,
+    phoneNumber: request.phoneNumber,
+    customerName: request.customerName,
+    externalRequestId: request.externalRequestId,
+    notes: request.notes,
+  };
+}
+
+function redactProxyRequestPayload(payload: ReturnType<typeof buildProxyRequestPayload>) {
+  return {
+    ...payload,
+    clientId: payload.clientId ? '[redacted-client-id]' : null,
+    phoneNumber: payload.phoneNumber ? '[redacted-phone]' : null,
+  };
+}
+
+function unwrapProxyResult(result: ProviderHttpResult): ProviderHttpResult {
+  const envelope = result.payload;
+  if (!envelope) {
+    return result;
+  }
+
+  const payload = envelope.payload;
+  const rawHttpStatus = toNumberValue(envelope.httpStatus);
+  const httpStatus = rawHttpStatus ? Math.trunc(rawHttpStatus) : result.httpStatus;
+
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    return {
+      httpStatus,
+      payload: payload as UnknownRecord,
+      rawText: typeof envelope.rawText === 'string' ? envelope.rawText : result.rawText,
+    };
+  }
+
+  if (Object.prototype.hasOwnProperty.call(envelope, 'payload') || Object.prototype.hasOwnProperty.call(envelope, 'httpStatus')) {
+    return {
+      httpStatus,
+      payload: null,
+      rawText: typeof envelope.rawText === 'string' ? envelope.rawText : result.rawText,
+    };
+  }
+
+  return result;
+}
+
+async function callProxyInstapagoProvider(
   method: InstapagoVerificationMethod,
   config: DecryptedInstapagoConfig,
   request: NormalizedProviderRequest,
   mode: InstapagoProviderCallMode,
 ) {
+  if (!config.proxyBaseUrl || !config.proxyToken) {
+    throw new Error('instapago_proxy_not_configured');
+  }
+
+  const methodPath = method === 'pago_movil' ? 'pago-movil' : 'transferencia-directa';
+  const action = mode === 'authorize' ? 'validate' : 'lookup';
+  const url = buildBaseUrl(config.proxyBaseUrl, `/${methodPath}/${action}`);
+  const body = buildProxyRequestPayload(request);
+  const rawResult = await fetchWithTimeout(url, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${config.proxyToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  return {
+    result: unwrapProxyResult(rawResult),
+    request: {
+      transportMode: 'proxy',
+      method: 'POST',
+      url,
+      body: redactProxyRequestPayload(body),
+    },
+  };
+}
+
+async function callDirectInstapagoProvider(
+  method: InstapagoVerificationMethod,
+  config: DecryptedInstapagoConfig,
+  request: NormalizedProviderRequest,
+  mode: InstapagoProviderCallMode,
+) {
+  if (!config.keyId || !config.publicKeyId) {
+    throw new Error('instapago_direct_credentials_missing');
+  }
+
   if (method === 'pago_movil') {
     const params = buildPagoMovilProviderParams(config, request);
     const endpoint = mode === 'authorize'
@@ -453,6 +558,7 @@ async function callInstapagoProvider(
     return {
       result,
       request: {
+        transportMode: 'direct',
         method: 'GET',
         url: `${url.origin}${url.pathname}`,
         params: redactProviderRequest(params),
@@ -474,11 +580,25 @@ async function callInstapagoProvider(
   return {
     result,
     request: {
+      transportMode: 'direct',
       method: 'POST',
       url: buildProviderUrl(config, transferEndpoint),
       body: redactProviderRequest(params),
     },
   };
+}
+
+async function callInstapagoProvider(
+  method: InstapagoVerificationMethod,
+  config: DecryptedInstapagoConfig,
+  request: NormalizedProviderRequest,
+  mode: InstapagoProviderCallMode,
+) {
+  if (config.transportMode === InstapagoTransportMode.PROXY) {
+    return callProxyInstapagoProvider(method, config, request, mode);
+  }
+
+  return callDirectInstapagoProvider(method, config, request, mode);
 }
 
 function parseProviderPaymentList(payload: UnknownRecord | null): UnknownRecord[] {
@@ -653,6 +773,10 @@ function responseSuccess(payload: UnknownRecord | null) {
     return false;
   }
 
+  if (isDuplicateProviderResponse(payload)) {
+    return false;
+  }
+
   const rawSuccess = payload.success;
   const rawMisspelledSuccess = payload.sucess;
   if (rawSuccess === true || rawMisspelledSuccess === true) {
@@ -794,6 +918,7 @@ function buildRequestPayload(request: NormalizedProviderRequest) {
 
 function buildApiSummary(input: {
   method: InstapagoVerificationMethod;
+  transportMode?: 'proxy' | 'direct' | null;
   checked: boolean;
   configured: boolean;
   providerCode?: string | null;
@@ -807,6 +932,7 @@ function buildApiSummary(input: {
   return {
     provider: 'instapago',
     method: input.method,
+    transportMode: input.transportMode ?? null,
     checked: input.checked,
     configured: input.configured,
     providerCode: input.providerCode ?? null,
@@ -903,6 +1029,7 @@ function resultFromPreviousAttempt(
   method: InstapagoVerificationMethod,
   attempt: NonNullable<Awaited<ReturnType<typeof findPreviousLocalAttempt>>>,
   checked: boolean,
+  transportMode?: 'proxy' | 'direct' | null,
 ) {
   const serialized = serializePaymentProviderAttempt(attempt);
   const evidence = (attempt.evidence ?? null) as InstapagoEvidence | null;
@@ -914,6 +1041,7 @@ function resultFromPreviousAttempt(
     candidateCount: attempt.authorized ? 1 : 0,
     api: buildApiSummary({
       method,
+      transportMode,
       checked,
       configured: true,
       providerCode: attempt.providerCode,
@@ -983,6 +1111,21 @@ function missingRequiredFieldReason(request: NormalizedProviderRequest, method: 
   return null;
 }
 
+function validateTransportConfig(config: DecryptedInstapagoConfig) {
+  if (config.transportMode === InstapagoTransportMode.PROXY) {
+    if (!config.proxyBaseUrl || !config.proxyToken) {
+      return 'instapago_proxy_not_configured';
+    }
+    return null;
+  }
+
+  if (!config.apiBaseUrl || !config.keyId || !config.publicKeyId) {
+    return 'instapago_direct_credentials_missing';
+  }
+
+  return null;
+}
+
 export async function evaluateInstapagoAuthorization(input: {
   companyId: string;
   method: InstapagoVerificationMethod;
@@ -997,6 +1140,7 @@ export async function evaluateInstapagoAuthorization(input: {
       reasonCode: 'provider_error',
       api: buildApiSummary({
         method: input.method,
+        transportMode: null,
         checked: false,
         configured: false,
         errorCode: 'instapago_not_configured',
@@ -1006,7 +1150,26 @@ export async function evaluateInstapagoAuthorization(input: {
     });
   }
 
+  const transportMode = transportModeToClient(config.transportMode);
   const request = normalizeProviderRequest(input.payload, config, input.method);
+  const transportError = validateTransportConfig(config);
+  if (transportError) {
+    return buildResult({
+      method: input.method,
+      authorized: false,
+      reasonCode: 'provider_error',
+      api: buildApiSummary({
+        method: input.method,
+        transportMode,
+        checked: false,
+        configured: true,
+        errorCode: transportError,
+        providerMessage: 'InstaPago transport is not fully configured for this company.',
+      }),
+      riskFlags: [transportError],
+    });
+  }
+
   const missingReason = missingRequiredFieldReason(request, input.method);
   if (missingReason) {
     return buildResult({
@@ -1015,6 +1178,7 @@ export async function evaluateInstapagoAuthorization(input: {
       reasonCode: missingReason,
       api: buildApiSummary({
         method: input.method,
+        transportMode,
         checked: false,
         configured: true,
         errorCode: 'instapago_required_field_missing',
@@ -1031,7 +1195,7 @@ export async function evaluateInstapagoAuthorization(input: {
   });
 
   if (previousAttempt?.externalRequestId && request.externalRequestId) {
-    return resultFromPreviousAttempt(input.method, previousAttempt, true);
+    return resultFromPreviousAttempt(input.method, previousAttempt, true, transportMode);
   }
 
   try {
@@ -1043,7 +1207,7 @@ export async function evaluateInstapagoAuthorization(input: {
     );
     const payload = result.payload;
     let supplementalList: SupplementalProviderListLookup | null = null;
-    if (shouldFetchSupplementalList(input.method, payload)) {
+    if (config.transportMode === InstapagoTransportMode.DIRECT && shouldFetchSupplementalList(input.method, payload)) {
       try {
         supplementalList = await fetchSupplementalProviderList(input.method, config, request);
       } catch (error) {
@@ -1055,9 +1219,12 @@ export async function evaluateInstapagoAuthorization(input: {
     const message = providerMessage(payload, result.rawText);
     const duplicate = isDuplicateProviderResponse(payload);
     const evidence = evidencePayload ? buildEvidence(evidencePayload, request) : null;
-    const authorized = evidence ? isEvidenceAuthorized(payload, evidence, input.method) : false;
+    const providerHttpError = result.httpStatus >= 400;
+    const authorized = !duplicate && !providerHttpError && evidence ? isEvidenceAuthorized(payload, evidence, input.method) : false;
     const reasonCode: VerificationReasonCode = duplicate
       ? 'duplicate'
+      : providerHttpError
+        ? 'provider_error'
       : evidence
         ? reasonFromEvidence(payload, evidence, input.method)
         : 'provider_error';
@@ -1068,6 +1235,7 @@ export async function evaluateInstapagoAuthorization(input: {
     const providerResponse = payload
       ? {
           httpStatus: result.httpStatus,
+          transportMode,
           payload: redactProviderResponse(payload),
           supplementalList: supplementalList
             ? {
@@ -1082,6 +1250,7 @@ export async function evaluateInstapagoAuthorization(input: {
         }
       : {
           httpStatus: result.httpStatus,
+          transportMode,
           payload: null,
           rawText: result.rawText.slice(0, 500),
         };
@@ -1107,6 +1276,7 @@ export async function evaluateInstapagoAuthorization(input: {
       candidateCount: authorized ? 1 : 0,
       api: buildApiSummary({
         method: input.method,
+        transportMode,
         checked: true,
         configured: true,
         providerCode: code,
@@ -1127,6 +1297,7 @@ export async function evaluateInstapagoAuthorization(input: {
       method: input.method,
       request,
       providerRequest: {
+        transportMode,
         method: input.method,
         error: 'request_failed',
       },
@@ -1147,6 +1318,7 @@ export async function evaluateInstapagoAuthorization(input: {
       reasonCode: 'provider_error',
       api: buildApiSummary({
         method: input.method,
+        transportMode,
         checked: true,
         configured: true,
         errorCode,

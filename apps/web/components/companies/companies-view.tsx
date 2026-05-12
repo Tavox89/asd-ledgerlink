@@ -289,9 +289,12 @@ function CompanyInstapagoPanel({ company }: { company: CompanyRecord }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState({
     isActive: true,
+    transportMode: 'proxy' as 'proxy' | 'direct',
     apiBaseUrl: 'https://merchant.instapago.com/services/api',
     keyId: '',
     publicKeyId: '',
+    proxyBaseUrl: '',
+    proxyToken: '',
     defaultReceiptBank: '',
     defaultOriginBank: '',
   });
@@ -311,11 +314,14 @@ function CompanyInstapagoPanel({ company }: { company: CompanyRecord }) {
     setForm((current) => ({
       ...current,
       isActive: config.isActive,
+      transportMode: config.transportMode,
       apiBaseUrl: config.apiBaseUrl,
+      proxyBaseUrl: config.proxyBaseUrl ?? '',
       defaultReceiptBank: config.defaultReceiptBank,
       defaultOriginBank: config.defaultOriginBank ?? '',
       keyId: '',
       publicKeyId: '',
+      proxyToken: '',
     }));
   }, [configQuery.data]);
 
@@ -326,15 +332,30 @@ function CompanyInstapagoPanel({ company }: { company: CompanyRecord }) {
       }
 
       const exists = Boolean(configQuery.data);
-      if (!exists && (!form.keyId.trim() || !form.publicKeyId.trim())) {
-        throw new Error('Debes guardar KeyId y PublicKeyId la primera vez.');
+      if (form.transportMode === 'proxy') {
+        if (!form.proxyBaseUrl.trim()) {
+          throw new Error('La URL del proxy es obligatoria en modo proxy.');
+        }
+        if (!exists && !form.proxyToken.trim()) {
+          throw new Error('Debes guardar el token del proxy la primera vez.');
+        }
+        if (exists && !configQuery.data?.hasProxyToken && !form.proxyToken.trim()) {
+          throw new Error('Debes guardar el token del proxy para activar este modo.');
+        }
+      } else if (!exists && (!form.keyId.trim() || !form.publicKeyId.trim())) {
+        throw new Error('Debes guardar KeyId y PublicKeyId la primera vez en modo directo.');
+      } else if (exists && (!configQuery.data?.hasKeyId || !configQuery.data?.hasPublicKeyId) && (!form.keyId.trim() || !form.publicKeyId.trim())) {
+        throw new Error('Debes completar KeyId y PublicKeyId para activar el modo directo.');
       }
 
       return api.put<PaymentProviderConfigRecord>(`/companies/${company.slug}/payment-providers/instapago`, {
         isActive: form.isActive,
+        transportMode: form.transportMode,
         apiBaseUrl: form.apiBaseUrl,
         keyId: form.keyId.trim() || null,
         publicKeyId: form.publicKeyId.trim() || null,
+        proxyBaseUrl: form.proxyBaseUrl.trim() || null,
+        proxyToken: form.proxyToken.trim() || null,
         defaultReceiptBank: form.defaultReceiptBank.trim(),
         defaultOriginBank: form.defaultOriginBank.trim() || null,
       });
@@ -344,6 +365,7 @@ function CompanyInstapagoPanel({ company }: { company: CompanyRecord }) {
         ...current,
         keyId: '',
         publicKeyId: '',
+        proxyToken: '',
       }));
       toast.success('Configuración InstaPago guardada.');
       await queryClient.invalidateQueries({ queryKey: ['payment-provider-instapago', company.slug] });
@@ -353,6 +375,18 @@ function CompanyInstapagoPanel({ company }: { company: CompanyRecord }) {
   });
 
   const config = configQuery.data;
+  const isProxyMode = form.transportMode === 'proxy';
+  const isActiveViaProxy = Boolean(config?.isActive && config.transportMode === 'proxy' && config.hasProxyToken);
+  const isActiveDirect = Boolean(config?.isActive && config.transportMode === 'direct' && config.hasKeyId && config.hasPublicKeyId);
+  const statusText = !config
+    ? 'Pendiente de configuración'
+    : isActiveViaProxy
+      ? 'Activo vía proxy'
+      : isActiveDirect
+        ? 'Activo directo'
+        : config.transportMode === 'proxy'
+          ? 'Pendiente de token'
+          : 'Pendiente de credenciales';
 
   return (
     <div className="md:col-span-2 rounded-2xl border border-border/60 p-4">
@@ -363,17 +397,26 @@ function CompanyInstapagoPanel({ company }: { company: CompanyRecord }) {
             Configura las credenciales por empresa para validar Pago Móvil y Transferencia directa contra el proveedor.
           </p>
         </div>
-        <StatusBadge
-          status={config?.isActive && config.hasKeyId && config.hasPublicKeyId ? 'active' : 'inactive'}
-        />
+        <div className="flex flex-col items-end gap-1">
+          <StatusBadge status={isActiveViaProxy || isActiveDirect ? 'active' : 'inactive'} />
+          <span className="text-xs text-muted-foreground">{statusText}</span>
+        </div>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <Input
-          placeholder="Base URL API"
-          value={form.apiBaseUrl}
-          onChange={(event) => setForm((current) => ({ ...current, apiBaseUrl: event.target.value }))}
-        />
+        <label className="grid gap-1 text-sm text-muted-foreground">
+          Modo de conexión
+          <select
+            className="h-11 rounded-xl border border-border/70 bg-transparent px-3 text-sm text-foreground"
+            value={form.transportMode}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, transportMode: event.target.value as 'proxy' | 'direct' }))
+            }
+          >
+            <option value="proxy">Proxy por clubsamsve.com</option>
+            <option value="direct">Directo desde LedgerLink</option>
+          </select>
+        </label>
         <Input
           placeholder="Banco destino por defecto (4 dígitos)"
           value={form.defaultReceiptBank}
@@ -384,6 +427,38 @@ function CompanyInstapagoPanel({ company }: { company: CompanyRecord }) {
           value={form.defaultOriginBank}
           onChange={(event) => setForm((current) => ({ ...current, defaultOriginBank: event.target.value }))}
         />
+        {isProxyMode ? (
+          <>
+            <Input
+              placeholder="Proxy URL, ej. https://clubsamsve.com/wp-json/asd-instapago-proxy/v1"
+              value={form.proxyBaseUrl}
+              onChange={(event) => setForm((current) => ({ ...current, proxyBaseUrl: event.target.value }))}
+            />
+            <Input
+              placeholder={config?.hasProxyToken ? 'Token proxy guardado; escribir solo para reemplazar' : 'Token Bearer del proxy'}
+              value={form.proxyToken}
+              onChange={(event) => setForm((current) => ({ ...current, proxyToken: event.target.value }))}
+            />
+          </>
+        ) : (
+          <>
+            <Input
+              placeholder="Base URL API"
+              value={form.apiBaseUrl}
+              onChange={(event) => setForm((current) => ({ ...current, apiBaseUrl: event.target.value }))}
+            />
+            <Input
+              placeholder={config?.hasKeyId ? 'KeyId guardado; escribir solo para reemplazar' : 'KeyId'}
+              value={form.keyId}
+              onChange={(event) => setForm((current) => ({ ...current, keyId: event.target.value }))}
+            />
+            <Input
+              placeholder={config?.hasPublicKeyId ? 'PublicKeyId guardado; escribir solo para reemplazar' : 'PublicKeyId'}
+              value={form.publicKeyId}
+              onChange={(event) => setForm((current) => ({ ...current, publicKeyId: event.target.value }))}
+            />
+          </>
+        )}
         <label className="flex items-center gap-2 rounded-xl border border-border/60 px-3 py-2 text-sm">
           <input
             type="checkbox"
@@ -392,21 +467,14 @@ function CompanyInstapagoPanel({ company }: { company: CompanyRecord }) {
           />
           Proveedor activo
         </label>
-        <Input
-          placeholder={config?.hasKeyId ? 'KeyId guardado; escribir solo para reemplazar' : 'KeyId'}
-          value={form.keyId}
-          onChange={(event) => setForm((current) => ({ ...current, keyId: event.target.value }))}
-        />
-        <Input
-          placeholder={config?.hasPublicKeyId ? 'PublicKeyId guardado; escribir solo para reemplazar' : 'PublicKeyId'}
-          value={form.publicKeyId}
-          onChange={(event) => setForm((current) => ({ ...current, publicKeyId: event.target.value }))}
-        />
       </div>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
         <span>
-          Credenciales: {config?.hasKeyId && config.hasPublicKeyId ? 'guardadas' : 'pendientes'} · Última actualización:{' '}
+          {isProxyMode
+            ? `Proxy: ${config?.hasProxyToken ? 'token guardado' : 'token pendiente'}`
+            : `Credenciales directas: ${config?.hasKeyId && config.hasPublicKeyId ? 'guardadas' : 'pendientes'}`}
+          {' '}· Última actualización:{' '}
           {formatDateTime(config?.updatedAt ?? null)}
         </span>
         <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || configQuery.isLoading}>

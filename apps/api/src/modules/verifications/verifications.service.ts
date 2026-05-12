@@ -12,6 +12,11 @@ import {
 } from '../../lib/serializers';
 import { getCompanyBySlugOrThrow } from '../companies/companies.service';
 import { evaluateTransferMatches, type TransferCandidateInput } from '../matches/matching.engine';
+import {
+  applyAuthorizeConsumption,
+  assertAuthorizeConsumptionContext,
+  recordPaymentValidationOnly,
+} from '../payment-consumptions/payment-consumptions.service';
 import { pullGmailPubSubMessages } from '../pubsub/pubsub.service';
 import { createTransfer, confirmTransfer, rejectTransfer } from '../transfers/transfers.service';
 import {
@@ -64,6 +69,25 @@ function defaultAutoRefreshResult(): VerificationAutoRefreshResult {
     pulled: 0,
     processed: 0,
   };
+}
+
+function providerDecisionMessage(exact: {
+  authorized: boolean;
+  reasonCode: string;
+  paymentProviderApi?: {
+    providerCode?: string | null;
+    providerMessage?: string | null;
+  };
+}) {
+  if (
+    exact.reasonCode === 'duplicate' &&
+    (exact.paymentProviderApi?.providerCode === '401' ||
+      /ya\s+ha\s+sido\s+validado|ya\s+validado|already\s+validated/i.test(exact.paymentProviderApi?.providerMessage ?? ''))
+  ) {
+    return 'El pago ya fue validado anteriormente por el canal bancario.';
+  }
+
+  return exact.authorized ? 'Pago validado oficialmente.' : 'Pago no autorizado.';
 }
 
 function normalizeInputForProfile(
@@ -534,7 +558,9 @@ async function lookupVerificationWithProfile(
   const status = strongest ? mapLookupStatus(strongest.candidate.status) : 'pending';
   const now = new Date().toISOString();
 
-  return {
+  const result = {
+    companyId: company.id,
+    companySlug: company.slug,
     id: 'lookup',
     persisted: false,
     verificationMethod: profile.method,
@@ -569,6 +595,8 @@ async function lookupVerificationWithProfile(
     createdAt: lookup.transfer.createdAt,
     updatedAt: now,
   };
+
+  return recordPaymentValidationOnly(result, input);
 }
 
 export async function createManualVerification(
@@ -589,19 +617,22 @@ export async function authorizeVerification(
   companySlug: string,
   input: CreateManualVerificationInput,
 ) {
-  return authorizeVerificationWithProfile(companySlug, input, ZELLE_PROFILE);
+  assertAuthorizeConsumptionContext(input);
+  const result = await authorizeVerificationWithProfile(companySlug, input, ZELLE_PROFILE);
+  return applyAuthorizeConsumption(result, input);
 }
 
 export async function authorizeBinanceVerification(
   companySlug: string,
   input: CreateManualVerificationInput,
 ) {
+  assertAuthorizeConsumptionContext(input);
   const company = await getCompanyBySlugOrThrow(companySlug);
   const normalizedInput = normalizeInputForProfile(input, BINANCE_PROFILE);
   const spec = buildExactAuthorizationSpec(company.id, normalizedInput);
   const exact = await evaluateBinancePayAuthorization(spec);
 
-  return {
+  const result = {
     companyId: company.id,
     companySlug: company.slug,
     verificationMethod: 'binance',
@@ -612,7 +643,9 @@ export async function authorizeBinanceVerification(
     evidence: exact.evidence,
     binanceApi: exact.binanceApi,
     autoRefresh: defaultAutoRefreshResult(),
-  };
+  } as const;
+
+  return applyAuthorizeConsumption(result, normalizedInput);
 }
 
 async function evaluateProviderVerification(
@@ -637,7 +670,11 @@ async function evaluateProviderVerification(
     companySlug: company.slug,
     verificationMethod: method,
     authorized: exact.authorized,
+    decision: exact.authorized ? 'approve' : 'deny',
     reasonCode: exact.reasonCode,
+    providerCode: exact.paymentProviderApi.providerCode,
+    providerMessage: exact.paymentProviderApi.providerMessage,
+    message: providerDecisionMessage(exact),
     candidateCount: exact.candidateCount,
     senderMatchType: exact.senderMatchType,
     evidence: exact.evidence,
@@ -666,7 +703,9 @@ async function lookupProviderVerification(
   const status = exact.authorized ? 'preconfirmed' : 'pending';
   const now = new Date().toISOString();
 
-  return {
+  const result = {
+    companyId: company.id,
+    companySlug: company.slug,
     id: 'lookup',
     persisted: false,
     verificationMethod: method,
@@ -702,20 +741,26 @@ async function lookupProviderVerification(
     createdAt: lookup.transfer.createdAt,
     updatedAt: now,
   };
+
+  return recordPaymentValidationOnly(result, input);
 }
 
 export async function authorizePagoMovilVerification(
   companySlug: string,
   input: PaymentProviderVerificationInput,
 ) {
-  return evaluateProviderVerification(companySlug, input, 'pago_movil', 'authorize');
+  assertAuthorizeConsumptionContext(input);
+  const result = await evaluateProviderVerification(companySlug, input, 'pago_movil', 'authorize');
+  return applyAuthorizeConsumption(result, input);
 }
 
 export async function authorizeTransferenciaDirectaVerification(
   companySlug: string,
   input: PaymentProviderVerificationInput,
 ) {
-  return evaluateProviderVerification(companySlug, input, 'transferencia_directa', 'authorize');
+  assertAuthorizeConsumptionContext(input);
+  const result = await evaluateProviderVerification(companySlug, input, 'transferencia_directa', 'authorize');
+  return applyAuthorizeConsumption(result, input);
 }
 
 export async function lookupPagoMovilVerification(
@@ -779,7 +824,9 @@ export async function lookupBinanceVerification(
   const status = exact.authorized ? 'preconfirmed' : 'pending';
   const now = new Date().toISOString();
 
-  return {
+  const result = {
+    companyId: company.id,
+    companySlug: company.slug,
     id: 'lookup',
     persisted: false,
     verificationMethod: 'binance',
@@ -815,7 +862,9 @@ export async function lookupBinanceVerification(
     matchCount: exact.authorized ? 1 : 0,
     createdAt: lookup.transfer.createdAt,
     updatedAt: now,
-  };
+  } as const;
+
+  return recordPaymentValidationOnly(result, normalizedInput);
 }
 
 export async function listVerifications(companySlug: string) {

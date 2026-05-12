@@ -651,7 +651,8 @@ export function ManualVerificationView() {
                   ) : null}
                   {latestResult.paymentProviderApi ? (
                     <div className="mt-3 rounded-2xl border border-emerald-200/70 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-950 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-100">
-                      InstaPago: {latestResult.paymentProviderApi.checked ? 'consulta oficial ejecutada' : 'lookup local'} ·{' '}
+                      InstaPago {latestResult.paymentProviderApi.transportMode === 'proxy' ? 'vía proxy' : 'directo'}:{' '}
+                      {latestResult.paymentProviderApi.checked ? 'consulta oficial ejecutada' : 'lookup local'} ·{' '}
                       {latestResult.paymentProviderApi.providerCode ?? 'sin código'}
                       {latestResult.paymentProviderApi.providerMessage
                         ? ` · ${latestResult.paymentProviderApi.providerMessage}`
@@ -710,6 +711,12 @@ export function ManualVerificationView() {
                         </p>
                         <p className="mt-1 text-sm text-muted-foreground">
                           Método: {methodLabel(inferVerificationMethod(latestResult))}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Transporte:{' '}
+                          {latestResult.paymentProviderApi?.transportMode === 'proxy'
+                            ? 'proxy clubsamsve.com'
+                            : 'directo LedgerLink'}
                         </p>
                         <p className="mt-2 text-xs text-muted-foreground">
                           Monto proveedor:{' '}
@@ -887,7 +894,9 @@ export function ManualVerificationView() {
                         ? 'Consulta directa Binance API'
                         : inferVerificationMethod(item) === 'pago_movil' ||
                             inferVerificationMethod(item) === 'transferencia_directa'
-                          ? 'Consulta directa InstaPago'
+                          ? item.paymentProviderApi?.transportMode === 'proxy'
+                            ? 'Consulta InstaPago vía proxy'
+                            : 'Consulta directa InstaPago'
                         : item.evidence?.subject ?? item.strongestEmail?.subject ?? 'Aún sin evidencia'}
                     </TD>
                     <TD>{resultReasonLabel(item)}</TD>

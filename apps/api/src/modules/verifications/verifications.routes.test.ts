@@ -371,7 +371,10 @@ describe('verification routes', () => {
       .send(validBinancePayload);
 
     expect(response.status).toBe(200);
-    expect(lookupBinanceVerification).toHaveBeenCalledWith('default', validBinancePayload);
+    expect(lookupBinanceVerification).toHaveBeenCalledWith('default', {
+      ...validBinancePayload,
+      validationContext: { source: 'operator' },
+    });
     expect(response.body).toMatchObject({
       verificationMethod: 'binance',
       authorized: true,
@@ -505,6 +508,7 @@ describe('verification routes', () => {
     expect(operatorLookupPagoMovilVerification).toHaveBeenCalledWith('default', {
       ...validPagoMovilPayload,
       montoEsperado: 1,
+      validationContext: { source: 'operator' },
     });
     expect(response.body).toMatchObject({
       verificationMethod: 'pago_movil',

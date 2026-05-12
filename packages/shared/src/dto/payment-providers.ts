@@ -2,9 +2,11 @@ import { z } from 'zod';
 
 import { currencyValues } from '../constants/statuses';
 import { localizedNumberField, optionalNullableField } from './common';
+import { validationContextSchema } from './verifications';
 
 export const paymentProviderValues = ['instapago'] as const;
 export const paymentProviderMethodValues = ['pago_movil', 'transferencia_directa'] as const;
+export const instapagoTransportModeValues = ['proxy', 'direct'] as const;
 
 const bankCodeSchema = z.string().trim().regex(/^\d{4}$/, 'Debe ser un codigo bancario SUDEBAN de 4 digitos.');
 const venezuelanDocumentSchema = z
@@ -23,9 +25,12 @@ const phoneSchema = z.preprocess(
 
 export const upsertInstapagoConfigSchema = z.object({
   isActive: z.boolean().default(true),
+  transportMode: z.enum(instapagoTransportModeValues).optional(),
   apiBaseUrl: z.string().trim().url().default('https://merchant.instapago.com/services/api'),
   keyId: optionalNullableField(z.string().trim().min(4).max(160)),
   publicKeyId: optionalNullableField(z.string().trim().min(8).max(240)),
+  proxyBaseUrl: optionalNullableField(z.string().trim().url()),
+  proxyToken: optionalNullableField(z.string().trim().min(16).max(512)),
   defaultReceiptBank: bankCodeSchema,
   defaultOriginBank: optionalNullableField(bankCodeSchema),
 });
@@ -44,6 +49,7 @@ export const paymentProviderVerificationSchema = z
     nombreClienteOpcional: optionalNullableField(z.string().trim().max(120)),
     notas: optionalNullableField(z.string().trim().max(500)),
     externalRequestId: optionalNullableField(z.string().trim().min(3).max(160)),
+    validationContext: validationContextSchema.optional(),
   })
   .refine((input) => Boolean(input.fechaPago || input.fechaOperacion), {
     message: 'Debe informar fechaPago o fechaOperacion.',
@@ -52,5 +58,6 @@ export const paymentProviderVerificationSchema = z
 
 export type PaymentProvider = (typeof paymentProviderValues)[number];
 export type PaymentProviderMethod = (typeof paymentProviderMethodValues)[number];
+export type InstapagoTransportMode = (typeof instapagoTransportModeValues)[number];
 export type UpsertInstapagoConfigInput = z.infer<typeof upsertInstapagoConfigSchema>;
 export type PaymentProviderVerificationInput = z.infer<typeof paymentProviderVerificationSchema>;

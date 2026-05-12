@@ -40,9 +40,11 @@ Optional InstaPago/Multibanco provider mode:
 ```env
 PAYMENT_CONFIG_ENCRYPTION_KEY=replace-with-a-long-stable-random-secret
 INSTAPAGO_TIMEOUT_MS=15000
+INSTAPAGO_DEFAULT_TRANSPORT_MODE=proxy
+INSTAPAGO_DEFAULT_PROXY_BASE_URL=https://staging.clubsamsve.com/wp-json/asd-instapago-proxy/v1
 ```
 
-After the env key is present, configure each company's InstaPago credentials from `/companies`. LedgerLink encrypts `keyId` and `publicKeyId`, stores only encrypted values, and never returns the full credentials. Pago Movil authorization calls `Payments/p2p/ValidatePayment`, Transferencia Directa calls `Transfers/p2c`, and both send dates as `YYYY-MM-DD`. The protected `/lookup` routes are local/non-destructive and only report existing attempts.
+After the env key is present, configure each company's InstaPago transport from `/companies`. In `proxy` mode LedgerLink encrypts the proxy bearer token and does not require `KeyId/PublicKeyId` locally. In `direct` mode LedgerLink encrypts `keyId` and `publicKeyId`. Full secrets are never returned. The protected `/lookup` routes remain non-destructive; `/authorize`, `/operator-lookup`, and `/manual` call the configured provider transport.
 
 ## Database
 
@@ -75,7 +77,7 @@ pnpm --filter @ledgerlink/web dev
 4. Register the Gmail watch when you also want Pub/Sub-based ingestion.
 5. Leave the local worker enabled for automatic polling, or pull Pub/Sub messages manually once `GOOGLE_APPLICATION_CREDENTIALS` is configured.
 6. Inspect `/companies/<slug>/emails`.
-7. Use `/companies/<slug>/verifications` to look up Zelle stored inbox evidence with `reference`, `name`, or both, plus `amount + date` after the email already arrived. If the first lookup still has no exact candidate, the backend now does one Pub/Sub pull and retries automatically. Binance mode consults Binance API directly or delegates to `BINANCE_VERIFIER_URL` when configured, and does not use Gmail evidence. Pago Movil and Transferencia Directa consult InstaPago directly once provider credentials are configured for that company.
+7. Use `/companies/<slug>/verifications` to look up Zelle stored inbox evidence with `reference`, `name`, or both, plus `amount + date` after the email already arrived. If the first lookup still has no exact candidate, the backend now does one Pub/Sub pull and retries automatically. Binance mode consults Binance API directly or delegates to `BINANCE_VERIFIER_URL` when configured, and does not use Gmail evidence. Pago Movil and Transferencia Directa consult InstaPago through the company's configured `proxy` or `direct` transport.
 8. Create an integration token with `POST /companies/:companySlug/integration-tokens` when you want to test the external bearer-protected verification contract.
 9. Use `POST /companies/:companySlug/verifications/authorize` with `Authorization: Bearer <token>` to exercise the same exact yes/no decision an external checkout or backoffice flow would consume.
 10. Use `POST /companies/:companySlug/verifications/lookup` with `Authorization: Bearer <token>` when the external bridge needs the richer operator-style payload.

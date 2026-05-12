@@ -18,6 +18,7 @@ import {
 import {
   buildAuthorizedReply,
   buildBlockedReply,
+  buildDuplicatePaymentReply,
   buildImageFallbackReply,
   buildMissingFieldsReply,
   buildTwimlResponse,
@@ -85,6 +86,23 @@ function getPaymentProviderApiSummary(result: WhatsAppAuthorizationResult) {
   return 'paymentProviderApi' in result ? result.paymentProviderApi : null;
 }
 
+function getConsumptionSummary(result: WhatsAppAuthorizationResult) {
+  return 'consumption' in result
+    ? (result.consumption as
+        | {
+            status?: string;
+            previous?: {
+              orderNumber?: string | null;
+              cashierName?: string | null;
+              cashierId?: string | null;
+              channel?: string | null;
+              consumedAt?: string | Date | null;
+            };
+          }
+        | null)
+    : null;
+}
+
 function parseStoredPartialPayload(value: unknown): Partial<CollectedVerificationInput> | null {
   if (!value || typeof value !== 'object') {
     return null;
@@ -97,6 +115,7 @@ function buildVerificationInput(
   method: Exclude<VerificationPaymentMethod, 'unknown'>,
   input: CollectedVerificationInput,
   strategy: { fechaOperacion: string; toleranciaMinutos: number; code: string },
+  context: { inboundMessageId: string; phoneNumber: string },
 ): CreateManualVerificationInput {
   return {
     referenciaEsperada: input.reference ?? '',
@@ -108,12 +127,18 @@ function buildVerificationInput(
     cuentaDestinoUltimos4: null,
     nombreClienteOpcional: input.customerName,
     notas: buildVerificationNotes(strategy, method),
+    validationContext: {
+      source: 'whatsapp',
+      externalRequestId: `whatsapp:${context.inboundMessageId}:${strategy.code}`,
+      validatorPhone: context.phoneNumber,
+    },
   };
 }
 
 function buildPaymentProviderVerificationInput(
   input: CollectedVerificationInput,
   strategy: { fechaOperacion: string; toleranciaMinutos: number },
+  context: { inboundMessageId: string; phoneNumber: string },
 ) {
   return {
     referenciaEsperada: input.reference ?? '',
@@ -127,7 +152,12 @@ function buildPaymentProviderVerificationInput(
     telefonoCliente: input.phoneNumber,
     nombreClienteOpcional: input.customerName,
     notas: `WhatsApp pilot (provider:${strategy.fechaOperacion})`,
-    externalRequestId: null,
+    externalRequestId: `whatsapp:${context.inboundMessageId}`,
+    validationContext: {
+      source: 'whatsapp' as const,
+      externalRequestId: `whatsapp:${context.inboundMessageId}:${strategy.fechaOperacion.slice(0, 10)}`,
+      validatorPhone: context.phoneNumber,
+    },
   };
 }
 
@@ -679,21 +709,31 @@ export async function processIncomingTwilioWebhook(
 
   for (const strategy of strategies) {
     const result = await (async () => {
+      const validationContext = {
+        inboundMessageId: inboundMessage.id,
+        phoneNumber,
+      };
+
       if (verificationMethod === 'pago_movil') {
         return authorizePagoMovilVerification(
           channel.company.slug,
-          buildPaymentProviderVerificationInput(mergedInput, strategy),
+          buildPaymentProviderVerificationInput(mergedInput, strategy, validationContext),
         );
       }
 
       if (verificationMethod === 'transferencia_directa') {
         return authorizeTransferenciaDirectaVerification(
           channel.company.slug,
-          buildPaymentProviderVerificationInput(mergedInput, strategy),
+          buildPaymentProviderVerificationInput(mergedInput, strategy, validationContext),
         );
       }
 
-      const verificationInput = buildVerificationInput(verificationMethod, mergedInput, strategy);
+      const verificationInput = buildVerificationInput(
+        verificationMethod,
+        mergedInput,
+        strategy,
+        validationContext,
+      );
       return verificationMethod === 'binance'
         ? authorizeBinanceVerification(channel.company.slug, verificationInput)
         : authorizeVerification(channel.company.slug, verificationInput);
@@ -703,7 +743,7 @@ export async function processIncomingTwilioWebhook(
       strategy,
       result,
     });
-    if (result.authorized) {
+    if (result.authorized || result.reasonCode === 'duplicate') {
       break;
     }
   }
@@ -715,16 +755,20 @@ export async function processIncomingTwilioWebhook(
 
   const selectedBinanceApiSummary = getBinanceApiSummary(selected.result);
   const selectedPaymentProviderApiSummary = getPaymentProviderApiSummary(selected.result);
+  const selectedConsumptionSummary = getConsumptionSummary(selected.result);
   const replyInput =
     verificationMethod === 'pago_movil' || verificationMethod === 'transferencia_directa'
       ? { ...mergedInput, currency: 'VES' as const }
       : mergedInput;
-  const replyText = selected.result.authorized
-    ? buildAuthorizedReply(verificationMethod, replyInput, selected.strategy.label)
-    : buildBlockedReply(verificationMethod, replyInput, selected.result.reasonCode, selected.strategy.label, {
-        binanceApiErrorCode: selectedBinanceApiSummary?.errorCode ?? null,
-        paymentProviderApiErrorCode: selectedPaymentProviderApiSummary?.errorCode ?? null,
-      });
+  const replyText =
+    selected.result.reasonCode === 'duplicate'
+      ? buildDuplicatePaymentReply(verificationMethod, selectedConsumptionSummary?.previous ?? null)
+      : selected.result.authorized
+        ? buildAuthorizedReply(verificationMethod, replyInput, selected.strategy.label)
+        : buildBlockedReply(verificationMethod, replyInput, selected.result.reasonCode, selected.strategy.label, {
+            binanceApiErrorCode: selectedBinanceApiSummary?.errorCode ?? null,
+            paymentProviderApiErrorCode: selectedPaymentProviderApiSummary?.errorCode ?? null,
+          });
   const shouldKeepDateFollowUpOpen = !selected.result.authorized && selected.result.reasonCode === 'date';
 
   await prisma.whatsAppConversation.update({
@@ -767,6 +811,7 @@ export async function processIncomingTwilioWebhook(
         autoRefresh: item.result.autoRefresh,
         binanceApi: getBinanceApiSummary(item.result),
         paymentProviderApi: getPaymentProviderApiSummary(item.result),
+        consumption: getConsumptionSummary(item.result),
       },
     })),
     finalResult: {
@@ -778,6 +823,7 @@ export async function processIncomingTwilioWebhook(
       evidence: selected.result.evidence,
       binanceApi: selectedBinanceApiSummary,
       paymentProviderApi: selectedPaymentProviderApiSummary,
+      consumption: selectedConsumptionSummary,
     },
     rawPayload: body,
   });

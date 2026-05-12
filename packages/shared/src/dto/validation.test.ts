@@ -7,6 +7,7 @@ import {
   gmailMessagesQuerySchema,
   gmailPullSchema,
   gmailSyncRecentSchema,
+  upsertInstapagoConfigSchema,
 } from './index';
 
 describe('shared DTO validation', () => {
@@ -93,6 +94,23 @@ describe('shared DTO validation', () => {
     expect(parsed.montoEsperado).toBe(59.24);
   });
 
+  it('accepts validation context for payment consumption', () => {
+    const parsed = createManualVerificationSchema.parse({
+      montoEsperado: '59,24',
+      fechaOperacion: '2026-04-17T16:30:00.000Z',
+      validationContext: {
+        source: 'openpos',
+        orderNumber: 'order-100',
+        cashierId: '7',
+        externalRequestId: 'order-100-zelle',
+      },
+    });
+
+    expect(parsed.validationContext?.source).toBe('openpos');
+    expect(parsed.validationContext?.orderNumber).toBe('order-100');
+    expect(parsed.validationContext?.cashierId).toBe('7');
+  });
+
   it('normalizes empty optional form fields to null', () => {
     const verification = createManualVerificationSchema.parse({
       referenciaEsperada: '',
@@ -116,5 +134,36 @@ describe('shared DTO validation', () => {
     expect(verification.nombreClienteOpcional).toBeNull();
     expect(sender.senderEmail).toBeNull();
     expect(sender.senderDomain).toBeNull();
+  });
+
+  it('accepts an InstaPago proxy config without direct credentials', () => {
+    const parsed = upsertInstapagoConfigSchema.parse({
+      isActive: true,
+      transportMode: 'proxy',
+      proxyBaseUrl: 'https://clubsamsve.com/wp-json/asd-instapago-proxy/v1',
+      proxyToken: 'proxy-token-for-ledgerlink',
+      defaultReceiptBank: '0134',
+      defaultOriginBank: '',
+    });
+
+    expect(parsed.transportMode).toBe('proxy');
+    expect(parsed.keyId).toBeUndefined();
+    expect(parsed.publicKeyId).toBeUndefined();
+    expect(parsed.defaultOriginBank).toBeNull();
+  });
+
+  it('accepts an InstaPago direct config with credentials', () => {
+    const parsed = upsertInstapagoConfigSchema.parse({
+      isActive: true,
+      transportMode: 'direct',
+      apiBaseUrl: 'https://merchant.instapago.com/services/api',
+      keyId: 'key-id',
+      publicKeyId: 'public-key-id',
+      defaultReceiptBank: '0134',
+    });
+
+    expect(parsed.transportMode).toBe('direct');
+    expect(parsed.keyId).toBe('key-id');
+    expect(parsed.publicKeyId).toBe('public-key-id');
   });
 });

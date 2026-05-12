@@ -4,7 +4,7 @@ import { env } from '../../config/env';
 import type { CurrencyCode } from '@ledgerlink/shared';
 import { dayjs } from '../../lib/dayjs';
 
-import type { VisionExtractionResult } from './whatsapp.helpers';
+import type { VerificationPaymentMethod, VisionExtractionResult } from './whatsapp.helpers';
 
 function normalizeCurrency(value?: string | null): CurrencyCode | null {
   const normalized = (value ?? '').trim().toUpperCase();
@@ -84,22 +84,41 @@ function normalizeRelativeDate(value: string | null | undefined, referenceDate: 
   return value?.trim() || null;
 }
 
-export async function extractVerificationFromImage(
-  imageUrl: string,
-  referenceDate: Date = new Date(),
-): Promise<VisionExtractionResult | null> {
+function methodPrompt(method: VerificationPaymentMethod, referenceDate: Date) {
+  const baseJson =
+    '{"isTransferProof":boolean,"reference":string|null,"customerName":string|null,"alias":string|null,"amount":number|null,"currency":"USD"|"VES"|"EUR"|"COP"|null,"date":"YYYY-MM-DD"|null,"time":"HH:mm"|null,"bank":string|null,"originBank":string|null,"destinationBank":string|null,"clientId":string|null,"phoneNumber":string|null,"confidence":number}';
+  const dateInstruction = `Toma como fecha de referencia ${dayjs(referenceDate).format('YYYY-MM-DD')}. Si la captura dice Today/Hoy, usa esa fecha; si dice Yesterday/Ayer, usa el dia anterior.`;
+
+  switch (method) {
+    case 'binance':
+      return `Perfil obligatorio: Binance. No autodetectes otro metodo. Responde con este JSON exacto: ${baseJson}. Extrae como reference el ID de orden, order ID, transaction ID o identificador Binance mas especifico visible. Extrae customerName solo si aparece nombre del pagador/remitente; si solo ves alias, correo o cuenta receptora, usa alias y deja customerName=null. Si aparece USDT, normaliza currency a USD. ${dateInstruction}`;
+    case 'pago_movil':
+      return `Perfil obligatorio: Pago Movil venezolano. No autodetectes otro metodo. Responde con este JSON exacto: ${baseJson}. Extrae referencia, monto VES, fecha de pago, banco origen, banco destino si aparece, cedula/RIF y telefono del cliente si aparecen. Los bancos deben ser codigos de 4 digitos si se ven; si solo ves nombre del banco, dejalo en originBank o destinationBank como texto. ${dateInstruction}`;
+    case 'transferencia_directa':
+      return `Perfil obligatorio: transferencia bancaria venezolana. No autodetectes otro metodo. Responde con este JSON exacto: ${baseJson}. Extrae referencia, monto VES, fecha de pago, banco origen, banco destino si aparece y cedula/RIF si aparecen. No inventes telefono si no se ve. Los bancos deben ser codigos de 4 digitos si se ven; si solo ves nombre del banco, dejalo como texto. ${dateInstruction}`;
+    case 'zelle':
+      return `Perfil obligatorio: Zelle. No autodetectes otro metodo. Responde con este JSON exacto: ${baseJson}. Extrae referencia si aparece, nombre del pagador o nombre asociado al pago, monto USD y fecha de llegada o pago. Si la captura muestra "Enrolled as", usa ese nombre completo como customerName. No confundas alias, correo receptor o cuenta destino con el pagador. ${dateInstruction}`;
+    default:
+      return `Responde con este JSON exacto: ${baseJson}. Si la captura muestra un nombre del pago o destinatario, usa el nombre mas completo visible, por ejemplo el de "Enrolled as". Si la captura es de Binance, customerName debe ser el pagador/remitente si aparece; no uses como customerName el alias, correo o cuenta receptora. Si solo ves alias o correo receptor de Binance, extraelo en alias y deja customerName=null. Si es Pago Movil o transferencia bancaria venezolana, extrae referencia, monto, fecha, banco origen, banco destino, cedula/RIF y telefono si aparecen; los bancos deben ser codigos de 4 digitos si se ven. Si la captura usa USDT, normaliza currency a USD. ${dateInstruction} Marca isTransferProof=true si la imagen parece contener evidencia razonable de transferencia o pago aunque este recortada, reenviada, comprimida o parcialmente visible. Si faltan campos, deja null solo en los que no se vean. Usa isTransferProof=false solo cuando claramente no parezca un comprobante o captura de pago.`;
+  }
+}
+
+export async function extractVerificationFromImageDataUri(input: {
+  imageDataUri: string;
+  method?: VerificationPaymentMethod;
+  referenceDate?: Date;
+}): Promise<VisionExtractionResult | null> {
   if (!env.OPENAI_API_KEY) {
     return null;
   }
 
-  const { buffer, contentType } = await downloadMedia(imageUrl);
-  const imageDataUri = `data:${contentType};base64,${buffer.toString('base64')}`;
-
+  const referenceDate = input.referenceDate ?? new Date();
+  const method = input.method ?? 'unknown';
   const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
   const completion = await client.chat.completions.create({
     model: env.OPENAI_VISION_MODEL,
     temperature: 0,
-    max_tokens: 250,
+    max_tokens: 300,
     response_format: {
       type: 'json_object',
     },
@@ -107,20 +126,19 @@ export async function extractVerificationFromImage(
       {
         role: 'system',
         content:
-          'Devuelve solo JSON valido. Considera como comprobante valido una captura real, un recorte, una captura reenviada por WhatsApp, un correo renderizado o una pantalla bancaria simple si muestra evidencia plausible de una transferencia. No exijas logos perfectos ni diseño formal; si ves datos de pago creibles, extraelos con menor confianza en vez de rechazar por completo.',
+          'Devuelve solo JSON valido. Considera como comprobante valido una captura real, recorte, captura reenviada, correo renderizado o pantalla bancaria simple si muestra evidencia plausible de pago. Usa solamente el perfil de metodo indicado por el usuario; no cambies el metodo ni inventes campos que no se ven.',
       },
       {
         role: 'user',
         content: [
           {
             type: 'text',
-            text:
-              `Responde con este JSON exacto: {"isTransferProof":boolean,"reference":string|null,"customerName":string|null,"alias":string|null,"amount":number|null,"currency":"USD"|"VES"|"EUR"|"COP"|null,"date":"YYYY-MM-DD"|null,"time":"HH:mm"|null,"bank":string|null,"originBank":string|null,"destinationBank":string|null,"clientId":string|null,"phoneNumber":string|null,"confidence":number}. Si la captura muestra un nombre del pago o destinatario, usa el nombre mas completo visible, por ejemplo el de "Enrolled as". Si la captura es de Binance, customerName debe ser el pagador/remitente si aparece; no uses como customerName el alias, correo o cuenta receptora. Si solo ves alias o correo receptor de Binance, extraelo en alias y deja customerName=null. Si es Pago Movil o transferencia bancaria venezolana, extrae referencia, monto, fecha, banco origen, banco destino, cedula/RIF y telefono si aparecen; los bancos deben ser codigos de 4 digitos si se ven. Si la captura usa USDT, normaliza currency a USD. Toma como fecha de referencia ${dayjs(referenceDate).format('YYYY-MM-DD')}. Si la captura dice Today/Hoy, usa esa fecha; si dice Yesterday/Ayer, usa el dia anterior. Marca isTransferProof=true si la imagen parece contener evidencia razonable de transferencia o pago aunque este recortada, reenviada, comprimida o parcialmente visible. Si faltan campos, deja null solo en los que no se vean. Usa isTransferProof=false solo cuando claramente no parezca un comprobante o captura de pago.`,
+            text: methodPrompt(method, referenceDate),
           },
           {
             type: 'image_url',
             image_url: {
-              url: imageDataUri,
+              url: input.imageDataUri,
             },
           },
         ],
@@ -187,4 +205,17 @@ export async function extractVerificationFromImage(
     rawText,
     failureReason: parsed.isTransferProof ? undefined : 'not_transfer_proof',
   };
+}
+
+export async function extractVerificationFromImage(
+  imageUrl: string,
+  referenceDate: Date = new Date(),
+): Promise<VisionExtractionResult | null> {
+  if (!env.OPENAI_API_KEY) {
+    return null;
+  }
+
+  const { buffer, contentType } = await downloadMedia(imageUrl);
+  const imageDataUri = `data:${contentType};base64,${buffer.toString('base64')}`;
+  return extractVerificationFromImageDataUri({ imageDataUri, referenceDate, method: 'unknown' });
 }

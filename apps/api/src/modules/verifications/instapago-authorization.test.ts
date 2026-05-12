@@ -27,11 +27,25 @@ function buildConfig() {
     companyId: 'company-default',
     provider: 'INSTAPAGO',
     isActive: true,
+    transportMode: 'DIRECT',
     apiBaseUrl: 'https://merchant.instapago.com/services/api',
     keyId: 'key-id',
     publicKeyId: 'public-key-id',
+    proxyBaseUrl: null,
+    proxyToken: null,
     defaultReceiptBank: '0134',
     defaultOriginBank: null,
+  };
+}
+
+function buildProxyConfig() {
+  return {
+    ...buildConfig(),
+    transportMode: 'PROXY',
+    keyId: null,
+    publicKeyId: null,
+    proxyBaseUrl: 'https://clubsamsve.com/wp-json/asd-instapago-proxy/v1',
+    proxyToken: 'proxy-secret-token',
   };
 }
 
@@ -213,6 +227,151 @@ describe('InstaPago authorization', () => {
     );
   });
 
+  it('authorizes Pago Movil through the configured proxy transport', async () => {
+    getDecryptedInstapagoConfig.mockResolvedValue(buildProxyConfig());
+    const { evaluateInstapagoAuthorization } = await import('./instapago-authorization');
+    mockJsonResponse({
+      httpStatus: 200,
+      payload: {
+        success: true,
+        code: '201',
+        message: 'Se ha encontrado un pago, exitosamente',
+        reference: '028251997974',
+        referencedest: '028251997974',
+        bank: '0134',
+        receiptbank: '0134',
+        phonenumberclient: '00584240000000',
+        amount: '1.00',
+        date: '2023-10-17',
+      },
+    });
+
+    const result = await evaluateInstapagoAuthorization({
+      companyId: 'company-default',
+      method: 'pago_movil',
+      payload: buildPagoMovilPayload(),
+      mode: 'authorize',
+    });
+
+    expect(result.authorized).toBe(true);
+    expect(result.paymentProviderApi.transportMode).toBe('proxy');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://clubsamsve.com/wp-json/asd-instapago-proxy/v1/pago-movil/validate',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer proxy-secret-token',
+          'Content-Type': 'application/json',
+        }),
+      }),
+    );
+    const [, proxyRequest] = fetchMock.mock.calls[0] ?? [];
+    expect(JSON.parse(String((proxyRequest as RequestInit).body))).toMatchObject({
+      referenceExpected: '028251997974',
+      amountExpected: 1,
+      paymentDate: '2023-10-17',
+      destinationBank: '0134',
+    });
+    expect(prismaMock.paymentProviderVerificationAttempt.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          providerRequest: expect.objectContaining({
+            transportMode: 'proxy',
+            body: expect.objectContaining({
+              clientId: '[redacted-client-id]',
+              phoneNumber: '[redacted-phone]',
+            }),
+          }),
+          providerResponse: expect.objectContaining({
+            transportMode: 'proxy',
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('uses the non-destructive proxy lookup endpoint for Transferencia Directa', async () => {
+    getDecryptedInstapagoConfig.mockResolvedValue(buildProxyConfig());
+    const { evaluateInstapagoAuthorization } = await import('./instapago-authorization');
+    mockJsonResponse({
+      httpStatus: 200,
+      payload: {
+        success: true,
+        code: '201',
+        message: 'Se ha encontrado una transferencia, exitosamente',
+        reference: 'TRF123456',
+        referencedest: 'TRF123456',
+        bank: '0102',
+        receiptbank: '0134',
+        clientid: 'V12345678',
+        amount: '25.50',
+        date: '2023-10-17',
+      },
+    });
+
+    const result = await evaluateInstapagoAuthorization({
+      companyId: 'company-default',
+      method: 'transferencia_directa',
+      payload: {
+        referenciaEsperada: 'TRF123456',
+        montoEsperado: 25.5,
+        moneda: 'VES',
+        fechaPago: '2023-10-17',
+        fechaOperacion: null,
+        bancoOrigen: '0102',
+        bancoDestino: '0134',
+        cedulaCliente: 'V12345678',
+        telefonoCliente: null,
+        nombreClienteOpcional: null,
+        notas: null,
+        externalRequestId: null,
+      },
+      mode: 'lookup',
+    });
+
+    expect(result.authorized).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://clubsamsve.com/wp-json/asd-instapago-proxy/v1/transferencia-directa/lookup',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('returns provider_error when the proxy rejects the request', async () => {
+    getDecryptedInstapagoConfig.mockResolvedValue(buildProxyConfig());
+    const { evaluateInstapagoAuthorization } = await import('./instapago-authorization');
+    mockJsonResponse(
+      {
+        httpStatus: 403,
+        payload: {
+          success: false,
+          code: '403',
+          message: 'Token no autorizado',
+        },
+      },
+      403,
+    );
+
+    const result = await evaluateInstapagoAuthorization({
+      companyId: 'company-default',
+      method: 'pago_movil',
+      payload: buildPagoMovilPayload(),
+      mode: 'authorize',
+    });
+
+    expect(result.authorized).toBe(false);
+    expect(result.reasonCode).toBe('provider_error');
+    expect(result.paymentProviderApi.transportMode).toBe('proxy');
+    expect(result.paymentProviderApi.providerCode).toBe('403');
+    expect(prismaMock.paymentProviderVerificationAttempt.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          authorized: false,
+          reasonCode: 'provider_error',
+        }),
+      }),
+    );
+  });
+
   it('does not treat provider commerce rif as the payer client document', async () => {
     const { evaluateInstapagoAuthorization } = await import('./instapago-authorization');
     mockJsonResponse({
@@ -275,12 +434,20 @@ describe('InstaPago authorization', () => {
     );
   });
 
-  it('blocks duplicate provider responses', async () => {
+  it('blocks Pago Movil duplicate provider responses even when success is true', async () => {
     const { evaluateInstapagoAuthorization } = await import('./instapago-authorization');
     mockJsonResponse({
-      success: false,
+      success: true,
       code: '401',
       message: 'El pago ya ha sido validado',
+      reference: '028251997974',
+      referencedest: '028251997974',
+      bank: '0134',
+      receiptbank: '0134',
+      phonenumberclient: '00584240000000',
+      clientid: 'V0000000',
+      amount: '1.00',
+      date: '2023-10-17',
     });
 
     const result = await evaluateInstapagoAuthorization({
@@ -292,6 +459,77 @@ describe('InstaPago authorization', () => {
 
     expect(result.authorized).toBe(false);
     expect(result.reasonCode).toBe('duplicate');
+    expect(result.paymentProviderApi.providerCode).toBe('401');
+    expect(result.paymentProviderApi.providerMessage).toBe('El pago ya ha sido validado');
+    expect(result.paymentProviderApi.transactionCount).toBe(0);
+    expect(result.paymentProviderApi.evidence).toMatchObject({
+      referenceMatched: true,
+      amountMatched: true,
+      dateMatched: true,
+      clientId: '[redacted-client-id]',
+      phoneNumber: '[redacted-phone]',
+    });
+    expect(result.riskFlags).toContain('instapago_duplicate_validation');
+    expect(prismaMock.paymentProviderVerificationAttempt.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          authorized: false,
+          reasonCode: 'duplicate',
+          providerCode: '401',
+          providerMessage: 'El pago ya ha sido validado',
+          providerResponse: expect.objectContaining({
+            payload: expect.objectContaining({
+              code: '401',
+              message: 'El pago ya ha sido validado',
+              clientid: '[redacted-client-id]',
+              phonenumberclient: '[redacted-phone]',
+            }),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('blocks Transferencia Directa duplicate provider responses even when success is true', async () => {
+    const { evaluateInstapagoAuthorization } = await import('./instapago-authorization');
+    mockJsonResponse({
+      success: true,
+      code: '401',
+      message: 'El pago ya ha sido validado',
+      reference: 'TRF123456',
+      referencedest: 'TRF123456',
+      bank: '0102',
+      receiptbank: '0134',
+      clientid: 'V12345678',
+      amount: '25.50',
+      date: '2023-10-17',
+    });
+
+    const result = await evaluateInstapagoAuthorization({
+      companyId: 'company-default',
+      method: 'transferencia_directa',
+      payload: {
+        referenciaEsperada: 'TRF123456',
+        montoEsperado: 25.5,
+        moneda: 'VES',
+        fechaPago: '2023-10-17',
+        fechaOperacion: null,
+        bancoOrigen: '0102',
+        bancoDestino: '0134',
+        cedulaCliente: 'V12345678',
+        telefonoCliente: null,
+        nombreClienteOpcional: null,
+        notas: null,
+        externalRequestId: null,
+      },
+      mode: 'authorize',
+    });
+
+    expect(result.authorized).toBe(false);
+    expect(result.reasonCode).toBe('duplicate');
+    expect(result.paymentProviderApi.providerCode).toBe('401');
+    expect(result.paymentProviderApi.providerMessage).toBe('El pago ya ha sido validado');
+    expect(result.paymentProviderApi.transactionCount).toBe(0);
     expect(result.riskFlags).toContain('instapago_duplicate_validation');
   });
 
